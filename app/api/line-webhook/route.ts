@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const deps = {
     line,
     adminUserId: process.env.ADMIN_LINE_USER_ID,
-    liffId: process.env.NEXT_PUBLIC_LIFF_ID,
+    liffId: process.env.LIFF_ID || process.env.NEXT_PUBLIC_LIFF_ID,
     paymentInfo: paymentInfo(),
     orderSecret: secret,
   };

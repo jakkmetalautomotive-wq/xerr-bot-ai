@@ -75,5 +75,5 @@ npm run build   # ทดสอบ build แบบเดียวกับ Vercel
 3. ลูกค้ากรอกแบบฟอร์มในแอป LINE (`/order`, LIFF) → `/api/order` ตรวจตัวตนลูกค้า (ID token) + ลายเซ็นออเดอร์ → แจ้งแอดมินพร้อมปุ่ม ✅ ได้รับเงินแล้ว / ❌ ยอดไม่ตรง
 4. ลูกค้าส่งสลิปในแชท → บอทแจ้งแอดมิน · แอดมินเช็คยอดแล้วกดปุ่ม → บอทแจ้งลูกค้า
 - ไม่มีฐานข้อมูล: ข้อมูลออเดอร์ติดไปกับปุ่ม/ลิงก์ และเซ็นกำกับด้วย `LINE_CHANNEL_SECRET`
-- ต้องตั้ง: `ADMIN_LINE_USER_ID`, `PAYMENT_INFO`, `NEXT_PUBLIC_LIFF_ID`, `LINE_LOGIN_CHANNEL_ID`
+- ต้องตั้ง: `ADMIN_LINE_USER_ID`, `PAYMENT_INFO`, `LIFF_ID`, `LINE_LOGIN_CHANNEL_ID`
 - ข้อความ push (แจ้งแอดมิน / แจ้งลูกค้าหลังยืนยันเงิน) นับโควตาข้อความของแพ็กเกจ LINE OA
