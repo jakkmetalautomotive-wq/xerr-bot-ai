@@ -195,13 +195,13 @@ test("ลิงก์ Google Drive → ส่งผ่าน /api/img · ลิ�
   assert.equal(lineImageUrl("https://example.com/a.jpg"), "https://example.com/a.jpg");
 });
 
-test("การ์ดปัดดู: ใบละแบบ มีรูป https + ปุ่มเลือกแบบที่ N ที่ส่งข้อความกลับ", () => {
+test("การ์ดปัดดู (7 สี): ใบละแบบ มีรูป https + ปุ่มเลือกแบบที่ N ที่ส่งข้อความกลับ", () => {
   const set = sampleSets()[0];
   const flex = buildCarousel(set);
   assert.equal(flex.type, "flex");
   assert.ok(flex.altText.length <= 400);
   const bubbles = (flex.contents as any).contents;
-  assert.equal(bubbles.length, 4);
+  assert.equal(bubbles.length, 7);
   assert.match(bubbles[0].hero.url, /^https:\/\/.+\.png$/);
   const action = bubbles[3].footer.contents[0].action;
   assert.equal(action.type, "message");
@@ -225,7 +225,7 @@ test("AI ขอให้ส่งการ์ด → ลูกค้าได้
     line, getFaq: async () => "faq", getImageSets: async () => sampleSets(),
     ask: async (_f, _q, _u, sets) => { setsSeen = sets; return { reply: "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ", needsAdmin: false, adminNote: "", showSet: "อะคริลิค ขั้น 1 เลือกสี" }; },
   });
-  assert.equal(setsSeen.length, 4);
+  assert.equal(setsSeen.length, 3);
   assert.equal(sent[0].texts.length, 2);
   assert.equal(sent[0].texts[0], "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ");
   assert.equal((sent[0].texts[1] as any).type, "flex");
@@ -234,33 +234,58 @@ test("AI ขอให้ส่งการ์ด → ลูกค้าได้
 // ---------- เลือกเป็นขั้นตอน ----------
 import { parseChoice, nextStepSet, stepOf } from "../lib/images.ts";
 
-test("ชุดตัวอย่างอะคริลิค 4 ขั้น: สี → ขนาด → เส้นขอบ → เส้นกลาง", () => {
+test("ชุดตัวอย่างอะคริลิค 3 ขั้น: สี (รวมเส้นขอบ) → ขนาด → เส้นกลาง", () => {
   const sets = sampleSets();
-  assert.deepEqual(sets.map((s) => stepOf(s.name)), [1, 2, 3, 4].map((step) => ({ product: "อะคริลิค", step })));
+  assert.deepEqual(sets.map((s) => s.name), ["อะคริลิค ขั้น 1 เลือกสี", "อะคริลิค ขั้น 2 เลือกขนาด", "อะคริลิค ขั้น 3 เลือกเส้นกลาง"]);
+  assert.deepEqual(sets[0].items.map((i) => i.name), [
+    "สีดำ มีเส้นขอบ", "สีดำ ไร้เส้นขอบ", "สีขาว มีเส้นขอบ", "สีขาว ไร้เส้นขอบ", "สีเทา มีเส้นขอบ", "สีเทา ไร้เส้นขอบ", "ลายเคฟล่า ดำ มีเส้นขอบ",
+  ]);
   assert.deepEqual(sets[1].items.map((i) => [i.name, i.price]), [["สั้น-สั้น", "399.-"], ["สั้น-ยาว", "419.-"], ["ยาว-ยาว", "419.-"]]);
 });
 
-test("สีขาว: สี → ขนาด → เส้นขอบ → เส้นกลาง → จบ · ปุ่มพกตัวเลือกก่อนหน้า", () => {
+test("สีขาวไร้ขอบ → สั้น-ยาว → ไม่มีเส้นกลาง → จบ · ปุ่มพกตัวเลือกก่อนหน้า", () => {
   const sets = sampleSets();
-  const white = parseChoice(choiceText(sets[0], sets[0].items[1]), sets)!;
-  assert.deepEqual(white.picked, ["สีเรียบ ขาว"]);
-  assert.equal(nextStepSet(sets, white.set, white.picked)?.name, "อะคริลิค ขั้น 2 เลือกขนาด");
-  // กดขนาด "สั้น-ยาว" จากการ์ดที่พก "เลือกแล้ว: สีเรียบ ขาว"
-  const size = parseChoice(choiceText(sets[1], sets[1].items[1], white.picked), sets)!;
-  assert.deepEqual(size.picked, ["สีเรียบ ขาว", "สั้น-ยาว"]);
-  assert.equal(nextStepSet(sets, size.set, size.picked)?.name, "อะคริลิค ขั้น 3 เลือกเส้นขอบ");
-  const center = parseChoice(choiceText(sets[3], sets[3].items[1], ["สีเรียบ ขาว", "สั้น-ยาว", "ไร้เส้นขอบ"]), sets)!;
-  assert.deepEqual(center.picked, ["สีเรียบ ขาว", "สั้น-ยาว", "ไร้เส้นขอบ", "ไม่มีเส้นกลาง"]);
+  const color = parseChoice(choiceText(sets[0], sets[0].items[3]), sets)!;
+  assert.deepEqual(color.picked, ["สีขาว ไร้เส้นขอบ"]);
+  assert.equal(nextStepSet(sets, color.set, color.picked)?.name, "อะคริลิค ขั้น 2 เลือกขนาด");
+  const size = parseChoice(choiceText(sets[1], sets[1].items[1], color.picked), sets)!;
+  assert.deepEqual(size.picked, ["สีขาว ไร้เส้นขอบ", "สั้น-ยาว"]);
+  assert.equal(nextStepSet(sets, size.set, size.picked)?.name, "อะคริลิค ขั้น 3 เลือกเส้นกลาง");
+  const center = parseChoice(choiceText(sets[2], sets[2].items[1], size.picked), sets)!;
+  assert.deepEqual(center.picked, ["สีขาว ไร้เส้นขอบ", "สั้น-ยาว", "ไม่มีเส้นกลาง"]);
   assert.equal(nextStepSet(sets, center.set, center.picked), undefined);
   assert.equal(parseChoice("สวัสดีครับ", sets), null);
 });
 
-test("ลายเคฟล่า: ยังเลือกขนาด แต่ข้ามขั้นเส้นขอบ ไปเส้นกลางเลย", () => {
+test("ข้ามขั้น (ใช้กับชีตของจักรได้): แบบที่มี 'ข้ามขั้นXXX' → ข้ามชุดที่ชื่อมี XXX", () => {
+  const mk = (name: string, items: [string, string][]) => ({ name, items: items.map(([n, d], i) => ({ order: i + 1, name: n, price: "", image: "https://x/a.png", detail: d })) });
+  const sets = [mk("สแตนเลส ขั้น 1 เลือกแบบ", [["ขอบใหญ่", ""], ["คางหมู", "ข้ามขั้นเลือกแผ่นใส"]]), mk("สแตนเลส ขั้น 2 เลือกแผ่นใส", [["มีแผ่นใส", ""]]), mk("สแตนเลส ขั้น 3 เลือกขนาด", [["มาตรฐาน", ""]])];
+  assert.equal(nextStepSet(sets, sets[0], ["ขอบใหญ่"])?.name, "สแตนเลส ขั้น 2 เลือกแผ่นใส");
+  assert.equal(nextStepSet(sets, sets[0], ["คางหมู"])?.name, "สแตนเลส ขั้น 3 เลือกขนาด");
+});
+
+test("AI ล่มตอนลูกค้ากดการ์ด → ยังส่งขั้นถัดไปได้ ไม่ตอบว่าระบบขัดข้อง", async () => {
+  const { line, sent } = fakeLine();
   const sets = sampleSets();
-  const kevlar = parseChoice(choiceText(sets[0], sets[0].items[3]), sets)!;
-  assert.equal(nextStepSet(sets, kevlar.set, kevlar.picked)?.name, "อะคริลิค ขั้น 2 เลือกขนาด");
-  const size = parseChoice(choiceText(sets[1], sets[1].items[0], kevlar.picked), sets)!;
-  assert.equal(nextStepSet(sets, size.set, size.picked)?.name, "อะคริลิค ขั้น 4 เลือกเส้นกลาง");
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[1], sets[1].items[0], ["สีดำ มีเส้นขอบ"]) }), {
+    line, adminUserId: "UADMIN", getFaq: async () => "faq", getImageSets: async () => sets,
+    ask: async () => { throw new Error("This operation was aborted"); },
+  });
+  assert.notEqual(sent[0].texts[0], ERROR_REPLY);
+  assert.match(sent[0].texts[1].altText, /ขั้น 3 เลือกเส้นกลาง/);
+  assert.match(sent[0].texts[1].contents.contents[0].footer.contents[0].action.text, /เลือกแล้ว: สีดำ มีเส้นขอบ, สั้น-สั้น$/);
+  assert.equal(sent.length, 1); // ไม่ต้องแจ้งแอดมิน
+});
+
+test("AI ล่มตอนกดขั้นสุดท้าย → สรุปที่เลือกให้ลูกค้า + แจ้งแอดมินพร้อมรายการ", async () => {
+  const { line, sent } = fakeLine();
+  const sets = sampleSets();
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[2], sets[2].items[0], ["สีเทา ไร้เส้นขอบ", "สั้น-ยาว"]) }), {
+    line, adminUserId: "UADMIN", getFaq: async () => { throw new Error("sheet down"); }, getImageSets: async () => sets,
+  });
+  assert.match(sent[0].texts[0], /สรุปที่เลือก: สีเทา ไร้เส้นขอบ, สั้น-ยาว, มีเส้นกลาง/);
+  assert.equal(sent[1].to, "UADMIN");
+  assert.match(sent[1].texts[0], /เลือกครบแล้ว: สีเทา ไร้เส้นขอบ, สั้น-ยาว, มีเส้นกลาง \(อะคริลิค\)/);
 });
 
 test("ลูกค้ากดเลือกสี แต่ AI ลืมส่งขั้นต่อ → บอทส่งการ์ดขั้นขนาดให้เอง (ปุ่มพกสีที่เลือก)", async () => {
@@ -273,5 +298,5 @@ test("ลูกค้ากดเลือกสี แต่ AI ลืมส่
   const flex = sent[0].texts[1];
   assert.equal(flex.type, "flex");
   assert.match(flex.altText, /ขั้น 2 เลือกขนาด/);
-  assert.match(flex.contents.contents[0].footer.contents[0].action.text, /\| เลือกแล้ว: สีเรียบ ดำ$/);
+  assert.match(flex.contents.contents[0].footer.contents[0].action.text, /\| เลือกแล้ว: สีดำ มีเส้นขอบ$/);
 });

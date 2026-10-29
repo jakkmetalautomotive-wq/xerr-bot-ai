@@ -25,10 +25,13 @@ export function sampleSets(): ImageSet[] {
     {
       name: "อะคริลิค ขั้น 1 เลือกสี",
       items: [
-        { order: 1, name: "สีเรียบ ดำ", price, image: img("acrylic-black.png"), detail: "มีเส้นขอบ หรือ ไร้เส้นขอบ" },
-        { order: 2, name: "สีเรียบ ขาว", price, image: img("acrylic-white.png"), detail: "มีเส้นขอบ หรือ ไร้เส้นขอบ" },
-        { order: 3, name: "สีเรียบ เทา", price, image: img("acrylic-gray.png"), detail: "มีเส้นขอบ หรือ ไร้เส้นขอบ" },
-        { order: 4, name: "ลายเคฟล่า ดำ", price, image: img("acrylic-kevlar.png"), detail: "มีเส้นขอบเท่านั้น · ข้ามขั้นเลือกเส้นขอบ" },
+        { order: 1, name: "สีดำ มีเส้นขอบ", price, image: img("black-border.png"), detail: "สีเรียบ" },
+        { order: 2, name: "สีดำ ไร้เส้นขอบ", price, image: img("black-noborder.png"), detail: "สีเรียบ" },
+        { order: 3, name: "สีขาว มีเส้นขอบ", price, image: img("white-border.png"), detail: "สีเรียบ" },
+        { order: 4, name: "สีขาว ไร้เส้นขอบ", price, image: img("white-noborder.png"), detail: "สีเรียบ" },
+        { order: 5, name: "สีเทา มีเส้นขอบ", price, image: img("gray-border.png"), detail: "สีเรียบ" },
+        { order: 6, name: "สีเทา ไร้เส้นขอบ", price, image: img("gray-noborder.png"), detail: "สีเรียบ" },
+        { order: 7, name: "ลายเคฟล่า ดำ มีเส้นขอบ", price, image: img("kevlar-border.png"), detail: "ลายเคฟล่ามีแบบมีเส้นขอบเท่านั้น" },
       ],
     },
     {
@@ -40,14 +43,7 @@ export function sampleSets(): ImageSet[] {
       ],
     },
     {
-      name: "อะคริลิค ขั้น 3 เลือกเส้นขอบ",
-      items: [
-        { order: 1, name: "มีเส้นขอบ", price: "", image: img("border-yes.png"), detail: "ราคาเท่าเดิม" },
-        { order: 2, name: "ไร้เส้นขอบ", price: "", image: img("border-no.png"), detail: "ราคาเท่าเดิม" },
-      ],
-    },
-    {
-      name: "อะคริลิค ขั้น 4 เลือกเส้นกลาง",
+      name: "อะคริลิค ขั้น 3 เลือกเส้นกลาง",
       items: [
         { order: 1, name: "มีเส้นกลาง", price: "", image: img("center-yes.png"), detail: "ราคาเท่าเดิม" },
         { order: 2, name: "ไม่มีเส้นกลาง", price: "", image: img("center-no.png"), detail: "ราคาเท่าเดิม" },

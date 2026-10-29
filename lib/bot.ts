@@ -50,19 +50,21 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
 
   await deps.line.showLoading(userId).catch(() => {});
 
+  const faqPromise = (deps.getFaq ?? getFaq)();
+  faqPromise.catch(() => {}); // error จัดการด้านล่าง
+  const sets: ImageSet[] = await (deps.getImageSets ?? getImageSets)().catch(() => []);
+  const choice = parseChoice(question, sets); // ลูกค้าเพิ่งกดปุ่มเลือกจากการ์ดไหม
+
   let answer: BotAnswer;
-  let sets: ImageSet[] = [];
   try {
-    const [faq, imageSets] = await Promise.all([(deps.getFaq ?? getFaq)(), (deps.getImageSets ?? getImageSets)().catch(() => [])]);
-    sets = imageSets;
-    answer = await (deps.ask ?? defaultAsk)(faq, question, userId, sets.map((s) => s.name));
+    answer = await (deps.ask ?? defaultAsk)(await faqPromise, question, userId, sets.map((s) => s.name));
   } catch (err) {
     console.error("[bot] ตอบไม่ได้:", (err as Error).message);
-    answer = { reply: ERROR_REPLY, needsAdmin: true, adminNote: `ระบบขัดข้อง (${(err as Error).message}) ลูกค้าพิมพ์ว่า: ${question.slice(0, 200)}` };
+    // ลูกค้ากดการ์ดอยู่ → ไปต่อได้แม้ AI ล่ม (ส่งขั้นถัดไป หรือสรุปที่เลือกให้แอดมิน)
+    answer = choice ? choiceFallback(sets, choice) : { reply: ERROR_REPLY, needsAdmin: true, adminNote: `ระบบขัดข้อง (${(err as Error).message}) ลูกค้าพิมพ์ว่า: ${question.slice(0, 200)}` };
   }
 
   const out: OutMessage[] = [answer.reply];
-  const choice = parseChoice(question, sets); // ลูกค้าเพิ่งกดปุ่มเลือกจากการ์ดไหม
   let set = answer.showSet ? findSet(sets, answer.showSet) : undefined;
   // กันพลาด: ลูกค้ากดเลือกขั้น N แต่ AI ลืมส่งขั้นถัดไป → ส่งให้เอง
   if (!set && !answer.needsAdmin && choice) set = nextStepSet(sets, choice.set, choice.picked);
@@ -72,6 +74,16 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   await send(deps, replyToken, userId, out);
   if (answer.reply !== ERROR_REPLY) addTurn(userId, question, set ? `${answer.reply}\n[ส่งการ์ดรูปชุด "${set.name}" ให้ลูกค้าเลือกแล้ว]` : answer.reply);
   if (answer.needsAdmin) await notifyAdmin(deps, userId, answer.adminNote || (answer.reply === DEFAULT_REPLY ? `คำถามที่ไม่มีใน FAQ: ${question}` : question));
+}
+
+function choiceFallback(sets: ImageSet[], choice: NonNullable<ReturnType<typeof parseChoice>>): BotAnswer {
+  const next = nextStepSet(sets, choice.set, choice.picked);
+  if (next) return { reply: "รับทราบครับ 😊 เลือกต่อได้เลยครับ", needsAdmin: false, adminNote: "", showSet: next.name };
+  return {
+    reply: `รับทราบครับ สรุปที่เลือก: ${choice.picked.join(", ")} 🙏 เดี๋ยวแอดมินสรุปยอดและค่าส่งให้นะครับ`,
+    needsAdmin: true,
+    adminNote: `ลูกค้าเลือกครบแล้ว: ${choice.picked.join(", ")} (${choice.set.name.replace(/\s*ขั้น.*$/, "")})`,
+  };
 }
 
 function defaultAsk(faq: string, question: string, userId: string, imageSets: string[]) {
