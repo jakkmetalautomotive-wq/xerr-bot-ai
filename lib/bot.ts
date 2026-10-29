@@ -12,6 +12,7 @@ import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage,
   decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
 } from "./order.ts";
+import { slipImageMessage } from "./slip.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
 export type OutMessage = string | FlexOut | { type: string; [key: string]: unknown };
@@ -61,7 +62,14 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
 
   if (msg.type === "image" || msg.type === "file" || msg.type === "video") {
     await send(deps, replyToken, userId, [IMAGE_REPLY, adminNotice()]);
-    await notifyAdmin(deps, userId, "ลูกค้าส่งรูป/ไฟล์ (อาจเป็นสลิปหรือรูปของเสียหาย)");
+    // รูป → ส่งรูปนั้นเข้าแชทแอดมินด้วย (ดูสลิปแล้วกด ✅ ได้เลย) · ไฟล์ / วิดีโอ → แจ้งให้ไปดูใน OA Manager
+    const image = msg.type === "image" && deps.orderSecret ? slipImageMessage(msg, deps.orderSecret) : null;
+    await notifyAdmin(
+      deps,
+      userId,
+      image ? "ลูกค้าส่งรูป (อาจเป็นสลิปหรือรูปของเสียหาย) — รูปอยู่ด้านล่าง 👇" : "ลูกค้าส่งรูป/ไฟล์ (อาจเป็นสลิปหรือรูปของเสียหาย)",
+      image ? [image] : [],
+    );
     return;
   }
 
@@ -258,7 +266,7 @@ async function send(deps: BotDeps, replyToken: string, userId: string, messages:
   }
 }
 
-async function notifyAdmin(deps: BotDeps, userId: string, note: string) {
+async function notifyAdmin(deps: BotDeps, userId: string, note: string, extra: OutMessage[] = []) {
   if (!deps.adminUserId) {
     console.warn("[admin] ยังไม่ได้ตั้ง ADMIN_LINE_USER_ID — แจ้งแอดมินไม่ได้:", note);
     return;
@@ -266,5 +274,5 @@ async function notifyAdmin(deps: BotDeps, userId: string, note: string) {
   if (userId === deps.adminUserId) return; // แอดมินทดสอบเอง ไม่ต้องแจ้งตัวเอง
   const name = await deps.line.displayName(userId).catch(() => "");
   const text = `🔔 ลูกค้าต้องการแอดมิน\nชื่อ: ${name || "-"}\nเรื่อง: ${note}\n\nตอบได้ใน LINE OA Manager › แชท`;
-  await deps.line.push(deps.adminUserId, [text]).catch((err) => console.error("[admin] แจ้งไม่สำเร็จ:", (err as Error).message));
+  await deps.line.push(deps.adminUserId, [text, ...extra]).catch((err) => console.error("[admin] แจ้งไม่สำเร็จ:", (err as Error).message));
 }

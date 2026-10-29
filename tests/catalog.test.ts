@@ -5,6 +5,7 @@ import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets, choiceText, CATEGORY_SET, buildQuickReply, isQuickSet, firstStepSet, parseImageSets, buildCarousel, parseLinkColumn, installSet, reviewSet, REVIEW_SET } from "../lib/images.ts";
 import { priceOrder, decodePostback, orderSummaryText, verifyOrder } from "../lib/order.ts";
 import { MENU } from "../lib/shop.ts";
+import { squareOnWhite, PHOTO_SIZE, cleanPhotoPath } from "../lib/photo.ts";
 import { richMenuRequest } from "../lib/richmenu.ts";
 
 function fakeLine() {
@@ -75,14 +76,14 @@ test("ทรงคางหมูไม่มีแบบแผ่นใส: เ
   // ทรงสี่เหลี่ยมยังไปขั้นแผ่นใสตามปกติ (รูปแผ่นใสตามทรง)
   const b = fakeLine();
   await handleEvent(msgEvent(pick("สแตนเลส ขั้น 1 เลือกทรง", "สี่เหลี่ยมขอบเล็ก")), deps(b.line));
-  const ids = b.sent[0].texts[1].contents.contents.map((x: any) => x.hero.url.split("id=")[1]);
+  const ids = b.sent[0].texts[1].contents.contents.map((x: any) => x.hero.url.split("id=")[1].split("&")[0]);
   assert.deepEqual(ids, ["1kJz6WBKwBsgpl9HWVEl8ensMB-0XizEv", "14P4dzfORCZ7xLlurVe6YqSX9vpC23Nlq"]);
 });
 
 test("เหล็กพ่นสี: สีขาว → ทรง (การ์ดรูปสีขาว) → แผ่นใส (การ์ดรูปตามสี+ทรง) → ชวนป้ายภาษี · ยอด 299 + 30 (AI ล่มก็ไปต่อได้)", async () => {
   const sets = sampleSets();
   const deps = (line: LinePort) => ({ line, getFaq: async () => "faq", getImageSets: async () => sets, ask: async (): Promise<never> => { throw new Error("AI ล่ม"); } });
-  const heroIds = (flex: any) => flex.contents.contents.map((b: any) => b.hero.url.split("id=")[1]);
+  const heroIds = (flex: any) => flex.contents.contents.map((b: any) => b.hero.url.split("id=")[1].split("&")[0]);
   const a = fakeLine();
   await handleEvent(msgEvent(pick("เหล็กพ่นสี ขั้น 1 เลือกสี", "สีขาว")), deps(a.line));
   assert.match(a.sent[0].texts[1].altText, /เหล็กพ่นสี ขั้น 2 เลือกทรง/);
@@ -103,7 +104,7 @@ test("เหล็กพ่นสี: สีขาว → ทรง (การ�
 });
 
 test("อะคริลิค: รูปขั้นขนาด / เส้นคาดกลาง เปลี่ยนตามสี + มี/ไร้เส้นขอบ ที่เลือก · เคฟล่ามีรูปของตัวเอง", () => {
-  const ids = (setName: string, picked: string[]) => (buildCarousel(setNamed(setName), picked).contents as any).contents.map((b: any) => b.hero.url.split("id=")[1]);
+  const ids = (setName: string, picked: string[]) => (buildCarousel(setNamed(setName), picked).contents as any).contents.map((b: any) => b.hero.url.split("id=")[1].split("&")[0]);
   assert.deepEqual(ids("อะคริลิค ขั้น 2 เลือกขนาด", ["สีเทา ไร้เส้นขอบ"]), ["1enKtjEX68h-Qb1lzo08RSf2hE2EJKO9k", "1ynSs_Ou_VIJG9B7IPCaGgst5tsHPvzQP", "1CfWNC6D4Ut5nYSIUakJXXgsPFjDm8jOI"]);
   assert.deepEqual(ids("อะคริลิค ขั้น 2 เลือกขนาด", ["สีเทา มีเส้นขอบ"]), ["1LRc1yj2Q_bgUm1qsqwf9FWuSBU8V_SpL", "1BtRbn3P39BJrXeGwoxK2bICNODa-umJR", "1xa-8_-G_VeOUoa35pkOgfXbWhz4-FFfU"]);
   assert.deepEqual(ids("อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง", ["สีขาว ไร้เส้นขอบ", "สั้น-ยาว"]), ["1ORK9I7P2cVTKm92lh_kjPFt0mh6Cv0sP", "1CqCAdaXC5GpIqWyKqtrT49joR0_EjDVu"]);
@@ -238,4 +239,38 @@ test("การ์ดประเภทสินค้า: แถว 1 แบบ
   assert.deepEqual(spans(steel), [["249.- / 299.-", "xxl", ""], [" (มีแผ่นใส)", "sm", ""]]);
   const parsed = parseImageSets("ชุดรูป,ชื่อแบบ,ราคา,ลิงก์รูป,ราคาปกติ\nx,ABS,199.-,,350.-");
   assert.equal(parsed[0].items[0].normal, "350.-");
+});
+
+test("รูปสินค้า: พื้นโปร่งใส → ขาว · รูปแนวนอนจัดลงจัตุรัสพื้นขาว ไม่ตัดขอบ", async () => {
+  const sharp = (await import("sharp")).default;
+  // รูป 400×300 พื้นโปร่งใส มีแถบดำเต็มความกว้างตรงกลาง (แทนกรอบป้าย)
+  const bar = await sharp({ create: { width: 400, height: 100, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
+  const input = await sharp({ create: { width: 400, height: 300, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: bar, top: 100, left: 0 }]).png().toBuffer();
+  const out = await squareOnWhite(input);
+  const meta = await sharp(out).metadata();
+  assert.deepEqual([meta.format, meta.width, meta.height, meta.hasAlpha], ["jpeg", PHOTO_SIZE, PHOTO_SIZE, false]);
+  const { data, info } = await sharp(out).raw().toBuffer({ resolveWithObject: true });
+  const px = (x: number, y: number) => data[(y * info.width + x) * info.channels];
+  assert.ok(px(5, 5) > 245, "มุมบน (เดิมโปร่งใส / ขอบเติม) ต้องเป็นสีขาว");
+  assert.ok(px(5, 520) < 15 && px(1034, 520) < 15, "แถบดำต้องยาวถึงขอบซ้าย-ขวา = ไม่โดนตัด");
+});
+
+test("รูปลบพื้นหลัง: ใช้เมื่อรูปใน Drive ยังเป็นต้นฉบับเดิม · อัปโหลดเวอร์ชันใหม่ / รูปที่ไม่มีฉบับตัด → ใช้รูปจาก Drive", async () => {
+  const { readFileSync, existsSync } = await import("node:fs");
+  const { CLEAN_PHOTOS } = await import("../lib/clean-photos.ts");
+  const ids = Object.keys(CLEAN_PHOTOS);
+  assert.equal(ids.length, 46);
+  // ทุกรายการมีไฟล์รูปจริง และเป็นรูปที่การ์ดใช้อยู่
+  const used = JSON.stringify(sampleSets());
+  assert.ok(ids.every((id) => existsSync(`public/products/${id}.jpg`) && used.includes(id)));
+  // ลายนิ้วมือไม่ตรง (เวอร์ชันใหม่) → null · id ที่ไม่มีฉบับตัด → null
+  assert.equal(cleanPhotoPath(ids[0], Buffer.from("รูปเวอร์ชันใหม่")), null);
+  assert.equal(cleanPhotoPath("1eto3c7NCL1vlSSs2gFOEWj71MiF-hqGV", Buffer.from("x")), null); // รถตู้ (ตัดไม่สวย ไม่ได้ใช้)
+  // ลายนิ้วมือตรง → ใช้รูปที่ตัดแล้ว (จำลองด้วยไฟล์ที่มีลายนิ้วมือตรงกัน)
+  const fake = { ...CLEAN_PHOTOS };
+  const body = readFileSync(`public/products/${ids[0]}.jpg`);
+  const h = (await import("node:crypto")).createHash("sha1").update(body).digest("hex");
+  CLEAN_PHOTOS[ids[0]] = h;
+  try { assert.equal(cleanPhotoPath(ids[0], body), `/products/${ids[0]}.jpg`); } finally { CLEAN_PHOTOS[ids[0]] = fake[ids[0]]; }
 });

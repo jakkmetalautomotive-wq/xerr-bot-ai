@@ -7,6 +7,7 @@ import { buildSystemPrompt, wrapQuestion } from "../lib/prompt.ts";
 import { askGemini, parseAnswer } from "../lib/gemini.ts";
 import { handleEvent, type LinePort, type OutMessage } from "../lib/bot.ts";
 import { adminNotice, DEFAULT_REPLY, ERROR_REPLY, MENU } from "../lib/shop.ts";
+import { verifySlip } from "../lib/slip.ts";
 
 // ---------- Sheet ----------
 test("อ่าน CSV ที่มี comma / ขึ้นบรรทัด / เครื่องหมายคำพูด ในช่อง", () => {
@@ -172,6 +173,26 @@ test("ส่งรูป → ไม่เรียก AI ส่งต่อแ�
   assert.deepEqual(sent[2].texts, ["Uxyz"]);
 });
 
+test("ลูกค้าส่งสลิป (รูป) → ส่งรูปนั้นเข้าแชทแอดมินด้วย ผ่านลิงก์ /api/slip ที่เซ็นไว้ · ไฟล์ส่งแค่ข้อความ", async () => {
+  const { line, sent } = fakeLine();
+  const deps = { line, adminUserId: "UADMIN", orderSecret: "secret", ask: async () => { throw new Error("ไม่ควรเรียก AI"); } };
+  await handleEvent(msgEvent({ type: "image", id: "598765432101", contentProvider: { type: "line" } }), deps);
+  const [note, image] = sent[1].texts;
+  assert.match(note, /รูปอยู่ด้านล่าง/);
+  assert.equal(image.type, "image");
+  const t = new URL(image.originalContentUrl).searchParams.get("t")!;
+  assert.match(image.originalContentUrl, /^https:\/\/.+\/api\/slip\?t=/);
+  assert.equal(image.previewImageUrl, `${image.originalContentUrl}&p=1`);
+  assert.equal(verifySlip(t, "secret"), "598765432101");
+  // ลายเซ็นผิด / แก้เลขข้อความ / คีย์อื่น → เปิดไม่ได้
+  assert.equal(verifySlip(t.replace("598765432101", "598765432102"), "secret"), null);
+  assert.equal(verifySlip(t, "other"), null);
+  assert.equal(verifySlip("598765432101", "secret"), null);
+  // ไฟล์ PDF → แจ้งแอดมินด้วยข้อความอย่างเดียว
+  await handleEvent(msgEvent({ type: "file", id: "2", fileName: "a.pdf" }), deps);
+  assert.equal(sent[3].texts.length, 1);
+});
+
 // ---------- การ์ดรูป ----------
 import { parseImageSets, buildCarousel, driveFileId, lineImageUrl, sampleSets, findSet, choiceText } from "../lib/images.ts";
 
@@ -191,7 +212,7 @@ test("อ่านแท็บรูปสินค้า: จัดกลุ่
 test("ลิงก์ Google Drive → ส่งผ่าน /api/img · ลิงก์รูปตรงใช้ตามเดิม", () => {
   assert.equal(driveFileId("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view?usp=sharing"), "1AbCdEfGhIjKlMn");
   assert.equal(driveFileId("https://drive.google.com/open?id=1AbCdEfGhIjKlMn"), "1AbCdEfGhIjKlMn");
-  assert.match(lineImageUrl("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view"), /^https:\/\/.+\/api\/img\?id=1AbCdEfGhIjKlMn$/);
+  assert.match(lineImageUrl("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view"), /^https:\/\/.+\/api\/img\?id=1AbCdEfGhIjKlMn&v=3$/);
   assert.equal(lineImageUrl("https://example.com/a.jpg"), "https://example.com/a.jpg");
 });
 
@@ -202,8 +223,8 @@ test("การ์ดปัดดู (7 สี): ใบละแบบ มีร
   assert.ok(flex.altText.length <= 400);
   const bubbles = (flex.contents as any).contents;
   assert.equal(bubbles.length, 7);
-  assert.match(bubbles[0].hero.url, /^https:\/\/.+\/api\/img\?id=1ObHYDZaanBdC3UhtulEtHT41kmFgfrGh$/); // รูปจริงจาก Drive ผ่าน /api/img
-  assert.match(bubbles[6].hero.url, /\/api\/img\?id=15UyD2nLQugAuI4-F8Ezdkz3YpnrfbwRe$/); // เคฟล่า
+  assert.match(bubbles[0].hero.url, /^https:\/\/.+\/api\/img\?id=1ObHYDZaanBdC3UhtulEtHT41kmFgfrGh&v=3$/); // รูปจริงจาก Drive ผ่าน /api/img
+  assert.match(bubbles[6].hero.url, /\/api\/img\?id=15UyD2nLQugAuI4-F8Ezdkz3YpnrfbwRe&v=3$/); // เคฟล่า
   const action = bubbles[3].footer.contents[0].action;
   assert.equal(action.type, "message");
   assert.equal(action.label, "เลือกแบบที่ 4");

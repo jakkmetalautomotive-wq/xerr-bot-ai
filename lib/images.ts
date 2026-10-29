@@ -336,10 +336,13 @@ export function driveFileId(url: string): string | null {
   return url.match(/\/d\/([A-Za-z0-9_-]{10,})/)?.[1] ?? url.match(/[?&]id=([A-Za-z0-9_-]{10,})/)?.[1] ?? null;
 }
 
+const IMG_VERSION = 3; // 2 = พื้นขาว + จัตุรัสไม่ตกขอบ · 3 = + รูปลบพื้นหลัง (lib/clean-photos.ts)
+
 // LINE ต้องการลิงก์รูป https ตรง ๆ → ลิงก์ Drive ส่งผ่าน /api/img ของเราเอง
 export function lineImageUrl(url: string): string {
   const id = driveFileId(url);
-  if (id) return `${baseUrl()}/api/img?id=${id}`;
+  // v = รุ่นการแปลงรูปใน /api/img · เปลี่ยนเลขเมื่อแก้วิธีแปลง เพื่อไม่ให้ใช้รูปเก่าที่แคชไว้
+  if (id) return `${baseUrl()}/api/img?id=${id}&v=${IMG_VERSION}`;
   return url;
 }
 
