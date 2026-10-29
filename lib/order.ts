@@ -1,7 +1,7 @@
 // ออเดอร์: คิดยอดด้วยโค้ด (ไม่ใช้ AI) · ข้อมูลออเดอร์เซ็นกำกับกันแก้ไข · ไม่ต้องมีฐานข้อมูล
 // ข้อมูลออเดอร์ติดไปกับปุ่ม / ลิงก์แบบฟอร์ม / ปุ่มของแอดมิน ทุกขั้น
 import crypto from "node:crypto";
-import { stepOf, type ImageSet } from "./images.ts";
+import { stepOf, CATEGORY_SET, type ImageSet } from "./images.ts";
 import { SHIPPING, TAX_CAR } from "./shop.ts";
 
 export type OrderDraft = { code: string; product: string; picks: string[]; tax: boolean };
@@ -30,10 +30,15 @@ export function productLabel(product: string): string {
   return product.startsWith("กรอบป้าย") ? product : `กรอบป้าย${product}`;
 }
 
-// ราคา = ราคาเดียวของแบบที่เลือก (เช่น ขนาด "สั้น-ยาว 419.-") · ค่าส่งตามกติกาใบประ
+// สั่งเฉพาะกรอบป้ายภาษี → ค่าส่ง 15 และไม่ชวนซื้อป้ายภาษีเพิ่ม
+export const isTaxOnly = (product: string) => product.includes("ป้ายภาษี");
+
+// ราคา = ราคาเดียวของแบบที่เลือกตัวท้ายสุด (เช่น ขนาด "สั้น-ยาว 419.-")
+// ไม่มีแบบไหนมีราคาเดียว → ใช้ราคาบนการ์ดประเภทสินค้า (เช่น ABS 199.-) · ค่าส่งตามกติกาใบประ
 export function priceOrder(sets: ImageSet[], draft: OrderDraft): PricedOrder | null {
   const items = sets.filter((s) => stepOf(s.name)?.product === draft.product).flatMap((s) => s.items);
-  let base: number | null = null;
+  const category = sets.find((s) => s.name === CATEGORY_SET)?.items.find((i) => i.name === draft.product);
+  let base: number | null = category ? singlePrice(category.price) : null;
   for (const pick of draft.picks) {
     const item = items.find((i) => i.name === pick);
     if (!item) return null; // ตัวเลือกไม่ตรงกับการ์ด (ข้อมูลเก่า/ถูกแก้)
@@ -41,8 +46,11 @@ export function priceOrder(sets: ImageSet[], draft: OrderDraft): PricedOrder | n
     if (p !== null) base = p;
   }
   if (base === null) return null;
-  const taxPrice = draft.tax ? TAX_CAR.price : 0;
-  const shipping = draft.tax ? SHIPPING.freeWithTaxCar : SHIPPING.default;
+  const taxOnly = isTaxOnly(draft.product);
+  const tax = draft.tax && !taxOnly;
+  const taxPrice = tax ? TAX_CAR.price : 0;
+  const shipping = taxOnly ? SHIPPING.taxOnly : tax ? SHIPPING.freeWithTaxCar : SHIPPING.default;
+  draft = { ...draft, tax };
   return { ...draft, productLabel: productLabel(draft.product), base, taxPrice, shipping, total: base + taxPrice + shipping };
 }
 
@@ -73,7 +81,7 @@ export function verifyOrder(token: string, secret: string): (OrderDraft & { tota
 // ---------- ข้อความ ----------
 export function orderLines(o: PricedOrder): string {
   return [
-    `🔺 ${o.productLabel}: ${o.picks.join(" / ")}  ${baht(o.base)}.-`,
+    `🔺 ${o.productLabel}${o.picks.length ? `: ${o.picks.join(" / ")}` : ""}  ${baht(o.base)}.-`,
     ...(o.tax ? [`🔺 ${TAX_CAR.name}  ${baht(o.taxPrice)}.-`] : []),
     `🚚 ค่าส่ง SPX: ${o.shipping === 0 ? "ฟรี" : `${baht(o.shipping)}.-`}`,
     `💰 ยอดชำระ ${baht(o.total)}.-`,
@@ -133,7 +141,7 @@ export function taxUpsellMessage(product: string, picks: string[]) {
   });
   return {
     type: "text" as const,
-    text: `รับทราบครับ สรุปที่เลือก: ${productLabel(product)} ${picks.join(" / ")} 😊\n\nเพิ่ม${TAX_CAR.name} ${TAX_CAR.price}.- ส่งฟรีทั้งออเดอร์เลยไหมครับ (ปกติค่าส่ง ${SHIPPING.default}.-)`,
+    text: `รับทราบครับ สรุปที่เลือก: ${productLabel(product)}${picks.length ? ` ${picks.join(" / ")}` : ""} 😊\n\nเพิ่ม${TAX_CAR.name} ${TAX_CAR.price}.- ส่งฟรีทั้งออเดอร์เลยไหมครับ (ปกติค่าส่ง ${SHIPPING.default}.-)`,
     quickReply: { items: [btn(`เพิ่มป้ายภาษี ${TAX_CAR.price}.-`, 1), btn("ไม่เพิ่ม", 0)] },
   };
 }

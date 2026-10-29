@@ -175,7 +175,7 @@ test("ส่งรูป → ไม่เรียก AI ส่งต่อแ�
 // ---------- การ์ดรูป ----------
 import { parseImageSets, buildCarousel, driveFileId, lineImageUrl, sampleSets, findSet, choiceText } from "../lib/images.ts";
 
-test("อ่านแท็บรูปสินค้า: จัดกลุ่มตามชุด เรียงตามลำดับ ข้ามแถวไม่มีรูป · แท็บผิด → ว่าง", () => {
+test("อ่านแท็บรูปสินค้า: จัดกลุ่มตามชุด เรียงตามลำดับ แถวไม่มีรูปยังอยู่ (ใช้เป็นปุ่มด่วน) · แท็บผิด → ว่าง", () => {
   const csv = [
     "ชุดรูป,ลำดับ,ชื่อแบบ,ราคา,ลิงก์รูป,รายละเอียด",
     "สีอะคริลิค,2,ขาว,399.-,https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view?usp=sharing,",
@@ -184,7 +184,7 @@ test("อ่านแท็บรูปสินค้า: จัดกลุ่
     "รุ่นกรอบ,1,สแตนเลส,279.-,https://example.com/ss.png,",
   ].join("\n");
   const sets = parseImageSets(csv);
-  assert.deepEqual(sets.map((s) => [s.name, s.items.map((i) => i.name)]), [["สีอะคริลิค", ["ดำ", "ขาว"]], ["รุ่นกรอบ", ["สแตนเลส"]]]);
+  assert.deepEqual(sets.map((s) => [s.name, s.items.map((i) => i.name)]), [["สีอะคริลิค", ["ดำ", "ขาว", "เทา"]], ["รุ่นกรอบ", ["สแตนเลส"]]]);
   assert.deepEqual(parseImageSets("รหัส,สินค้า\nabs,ABS\n"), []);
 });
 
@@ -196,7 +196,7 @@ test("ลิงก์ Google Drive → ส่งผ่าน /api/img · ลิ�
 });
 
 test("การ์ดปัดดู (7 สี): ใบละแบบ มีรูป https + ปุ่มเลือกแบบที่ N ที่ส่งข้อความกลับ", () => {
-  const set = sampleSets()[0];
+  const set = sampleSets()[1];
   const flex = buildCarousel(set);
   assert.equal(flex.type, "flex");
   assert.ok(flex.altText.length <= 400);
@@ -225,7 +225,7 @@ test("AI ขอให้ส่งการ์ด → ลูกค้าได้
     line, getFaq: async () => "faq", getImageSets: async () => sampleSets(),
     ask: async (_f, _q, _u, sets) => { setsSeen = sets; return { reply: "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ", needsAdmin: false, adminNote: "", showSet: "อะคริลิค ขั้น 1 เลือกสี" }; },
   });
-  assert.equal(setsSeen.length, 3);
+  assert.equal(setsSeen.length, sampleSets().length);
   assert.equal(sent[0].texts.length, 2);
   assert.equal(sent[0].texts[0], "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ");
   assert.equal((sent[0].texts[1] as any).type, "flex");
@@ -234,25 +234,25 @@ test("AI ขอให้ส่งการ์ด → ลูกค้าได้
 // ---------- เลือกเป็นขั้นตอน ----------
 import { parseChoice, nextStepSet, stepOf } from "../lib/images.ts";
 
-test("ชุดตัวอย่างอะคริลิค 3 ขั้น: สี (รวมเส้นขอบ) → ขนาด → เส้นกลาง", () => {
+test("ชุดตัวอย่างอะคริลิค 3 ขั้น: สี (รวมเส้นขอบ) → ขนาด → เส้นคาดกลาง", () => {
   const sets = sampleSets();
-  assert.deepEqual(sets.map((s) => s.name), ["อะคริลิค ขั้น 1 เลือกสี", "อะคริลิค ขั้น 2 เลือกขนาด", "อะคริลิค ขั้น 3 เลือกเส้นกลาง"]);
-  assert.deepEqual(sets[0].items.map((i) => i.name), [
+  assert.deepEqual(sets.slice(1, 4).map((s) => s.name), ["อะคริลิค ขั้น 1 เลือกสี", "อะคริลิค ขั้น 2 เลือกขนาด", "อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง"]);
+  assert.deepEqual(sets[1].items.map((i) => i.name), [
     "สีดำ มีเส้นขอบ", "สีดำ ไร้เส้นขอบ", "สีขาว มีเส้นขอบ", "สีขาว ไร้เส้นขอบ", "สีเทา มีเส้นขอบ", "สีเทา ไร้เส้นขอบ", "ลายเคฟล่า ดำ มีเส้นขอบ",
   ]);
-  assert.deepEqual(sets[1].items.map((i) => [i.name, i.price]), [["สั้น-สั้น", "399.-"], ["สั้น-ยาว", "419.-"], ["ยาว-ยาว", "419.-"]]);
+  assert.deepEqual(sets[2].items.map((i) => [i.name, i.price]), [["สั้น-สั้น", "399.-"], ["สั้น-ยาว", "419.-"], ["ยาว-ยาว", "419.-"]]);
 });
 
-test("สีขาวไร้ขอบ → สั้น-ยาว → ไม่มีเส้นกลาง → จบ · ปุ่มพกตัวเลือกก่อนหน้า", () => {
+test("สีขาวไร้ขอบ → สั้น-ยาว → ไม่มีเส้นคาดกลาง → จบ · ปุ่มพกตัวเลือกก่อนหน้า", () => {
   const sets = sampleSets();
-  const color = parseChoice(choiceText(sets[0], sets[0].items[3]), sets)!;
+  const color = parseChoice(choiceText(sets[1], sets[1].items[3]), sets)!;
   assert.deepEqual(color.picked, ["สีขาว ไร้เส้นขอบ"]);
   assert.equal(nextStepSet(sets, color.set, color.picked)?.name, "อะคริลิค ขั้น 2 เลือกขนาด");
-  const size = parseChoice(choiceText(sets[1], sets[1].items[1], color.picked), sets)!;
+  const size = parseChoice(choiceText(sets[2], sets[2].items[1], color.picked), sets)!;
   assert.deepEqual(size.picked, ["สีขาว ไร้เส้นขอบ", "สั้น-ยาว"]);
-  assert.equal(nextStepSet(sets, size.set, size.picked)?.name, "อะคริลิค ขั้น 3 เลือกเส้นกลาง");
-  const center = parseChoice(choiceText(sets[2], sets[2].items[1], size.picked), sets)!;
-  assert.deepEqual(center.picked, ["สีขาว ไร้เส้นขอบ", "สั้น-ยาว", "ไม่มีเส้นกลาง"]);
+  assert.equal(nextStepSet(sets, size.set, size.picked)?.name, "อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง");
+  const center = parseChoice(choiceText(sets[3], sets[3].items[1], size.picked), sets)!;
+  assert.deepEqual(center.picked, ["สีขาว ไร้เส้นขอบ", "สั้น-ยาว", "ไม่มีเส้นคาดกลาง"]);
   assert.equal(nextStepSet(sets, center.set, center.picked), undefined);
   assert.equal(parseChoice("สวัสดีครับ", sets), null);
 });
@@ -267,12 +267,12 @@ test("ข้ามขั้น (ใช้กับชีตของจักร
 test("AI ล่มตอนลูกค้ากดการ์ด → ยังส่งขั้นถัดไปได้ ไม่ตอบว่าระบบขัดข้อง", async () => {
   const { line, sent } = fakeLine();
   const sets = sampleSets();
-  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[1], sets[1].items[0], ["สีดำ มีเส้นขอบ"]) }), {
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[2], sets[2].items[0], ["สีดำ มีเส้นขอบ"]) }), {
     line, adminUserId: "UADMIN", getFaq: async () => "faq", getImageSets: async () => sets,
     ask: async () => { throw new Error("This operation was aborted"); },
   });
   assert.notEqual(sent[0].texts[0], ERROR_REPLY);
-  assert.match(sent[0].texts[1].altText, /ขั้น 3 เลือกเส้นกลาง/);
+  assert.match(sent[0].texts[1].altText, /ขั้น 3 เลือกเส้นคาดกลาง/);
   assert.match(sent[0].texts[1].contents.contents[0].footer.contents[0].action.text, /เลือกแล้ว: สีดำ มีเส้นขอบ, สั้น-สั้น$/);
   assert.equal(sent.length, 1); // ไม่ต้องแจ้งแอดมิน
 });
@@ -280,10 +280,10 @@ test("AI ล่มตอนลูกค้ากดการ์ด → ยัง
 test("Sheet/AI ล่มตอนกดขั้นสุดท้าย → ยังเข้าขั้นสั่งซื้อได้ (คิดยอดจากการ์ด ไม่ต้องใช้ AI)", async () => {
   const { line, sent } = fakeLine();
   const sets = sampleSets();
-  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[2], sets[2].items[0], ["สีเทา ไร้เส้นขอบ", "สั้น-ยาว"]) }), {
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[3], sets[3].items[0], ["สีเทา ไร้เส้นขอบ", "สั้น-ยาว"]) }), {
     line, adminUserId: "UADMIN", getFaq: async () => { throw new Error("sheet down"); }, getImageSets: async () => sets,
   });
-  assert.match(sent[0].texts[0].text, /สรุปที่เลือก: กรอบป้ายอะคริลิค สีเทา ไร้เส้นขอบ \/ สั้น-ยาว \/ มีเส้นกลาง/);
+  assert.match(sent[0].texts[0].text, /สรุปที่เลือก: กรอบป้ายอะคริลิค สีเทา ไร้เส้นขอบ \/ สั้น-ยาว \/ มีเส้นคาดกลาง/);
 });
 
 test("สินค้าที่การ์ดไม่มีราคา + AI ล่มตอนขั้นสุดท้าย → สรุปที่เลือก + แจ้งแอดมิน", async () => {
@@ -301,7 +301,7 @@ test("สินค้าที่การ์ดไม่มีราคา + AI
 test("ลูกค้ากดเลือกสี แต่ AI ลืมส่งขั้นต่อ → บอทส่งการ์ดขั้นขนาดให้เอง (ปุ่มพกสีที่เลือก)", async () => {
   const { line, sent } = fakeLine();
   const sets = sampleSets();
-  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[0], sets[0].items[0]) }), {
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[1], sets[1].items[0]) }), {
     line, getFaq: async () => "faq", getImageSets: async () => sets,
     ask: async () => ({ reply: "รับทราบสีดำครับ", needsAdmin: false, adminNote: "", showSet: "" }),
   });
@@ -315,7 +315,7 @@ test("ลูกค้ากดเลือกสี แต่ AI ลืมส่
 import { priceOrder, signOrder, verifyOrder, singlePrice, validateAddress, decodePostback, orderSummaryText, newOrderCode, addressSentText } from "../lib/order.ts";
 import { isRetryable } from "../lib/gemini.ts";
 
-const PICKS = ["สีดำ มีเส้นขอบ", "สั้น-ยาว", "มีเส้นกลาง"];
+const PICKS = ["สีดำ มีเส้นขอบ", "สั้น-ยาว", "มีเส้นคาดกลาง"];
 
 test("คิดยอดด้วยโค้ด: ราคาจากขนาด + ป้ายภาษี 69 / ค่าส่ง 30 หรือฟรี", () => {
   const sets = sampleSets();
@@ -323,7 +323,7 @@ test("คิดยอดด้วยโค้ด: ราคาจากขนา
   assert.equal(singlePrice("399.- / 419.-"), null);
   const noTax = priceOrder(sets, { code: "XR-T", product: "อะคริลิค", picks: PICKS, tax: false })!;
   assert.deepEqual([noTax.base, noTax.taxPrice, noTax.shipping, noTax.total], [419, 0, 30, 449]);
-  const withTax = priceOrder(sets, { code: "XR-T", product: "อะคริลิค", picks: ["สีขาว ไร้เส้นขอบ", "สั้น-สั้น", "ไม่มีเส้นกลาง"], tax: true })!;
+  const withTax = priceOrder(sets, { code: "XR-T", product: "อะคริลิค", picks: ["สีขาว ไร้เส้นขอบ", "สั้น-สั้น", "ไม่มีเส้นคาดกลาง"], tax: true })!;
   assert.deepEqual([withTax.base, withTax.taxPrice, withTax.shipping, withTax.total], [399, 69, 0, 468]);
   assert.equal(priceOrder(sets, { code: "x", product: "อะคริลิค", picks: ["สีชมพู"], tax: false }), null);
   assert.match(newOrderCode(), /^XR-[A-Z2-9]{4}$/);
@@ -342,7 +342,7 @@ test("สรุปออเดอร์: ใช้เทมเพลตจัก
   const o = priceOrder(sampleSets(), { code: "XR-AB12", product: "อะคริลิค", picks: PICKS, tax: true })!;
   const text = orderSummaryText(o, "🏦 KTB : 000-0-00000-0", true);
   assert.match(text, /ออเดอร์ XR-AB12/);
-  assert.match(text, /กรอบป้ายอะคริลิค: สีดำ มีเส้นขอบ \/ สั้น-ยาว \/ มีเส้นกลาง  419\.-/);
+  assert.match(text, /กรอบป้ายอะคริลิค: สีดำ มีเส้นขอบ \/ สั้น-ยาว \/ มีเส้นคาดกลาง  419\.-/);
   assert.match(text, /ค่าส่ง SPX: ฟรี/);
   assert.match(text, /ยอดชำระ 488\.-/);
   assert.match(text, /KTB/);
@@ -363,7 +363,7 @@ test("กดการ์ดขั้นสุดท้าย → ชวนเพ
   const { line, sent } = fakeLine();
   const sets = sampleSets();
   let asked = false;
-  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[2], sets[2].items[0], ["สีดำ มีเส้นขอบ", "สั้น-ยาว"]) }), {
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[3], sets[3].items[0], ["สีดำ มีเส้นขอบ", "สั้น-ยาว"]) }), {
     line, getFaq: async () => "faq", getImageSets: async () => sets, ask: async () => { asked = true; return { reply: "", needsAdmin: false, adminNote: "" }; },
   });
   assert.equal(asked, false);

@@ -10,7 +10,7 @@ export const SHOP = {
 };
 
 // ค่าส่ง + ราคาป้ายภาษี (ตามใบประหน้า 2026 ที่จักรยืนยัน) — ใช้คิดยอดออเดอร์ด้วยโค้ด
-export const SHIPPING = { default: 30, freeWithTaxCar: 0 };
+export const SHIPPING = { default: 30, freeWithTaxCar: 0, taxOnly: 15 };
 export const TAX_CAR = { name: "กรอบป้ายภาษี พรบ. รถยนต์", price: 69 };
 
 // ข้อ 3: ถามเรื่องที่ไม่มีใน FAQ → ข้อความนี้ + แจ้งแอดมิน
@@ -40,3 +40,11 @@ export function adminNotice(date = new Date()): string {
   const open = SHOP.adminDays.includes(day) && minutes >= SHOP.adminOpen && minutes < SHOP.adminClose;
   return open ? "เดี๋ยวแอดมินตอบกลับสักครู่ครับ" : `ตอนนี้นอกเวลาทำการ แอดมินจะตอบกลับช่วง ${SHOP.adminOpenText} น. ครับ`;
 }
+
+// ปุ่ม Rich Menu → ข้อความที่ลูกค้าส่งเข้ามา (บอทจับคำเหล่านี้ตอบด้วยโค้ด ไม่ต้องรอ AI)
+export const MENU = {
+  order: "🛒 สั่งซื้อ",
+  price: "💰 ราคา",
+  install: "🔧 วิธีติดตั้ง",
+  admin: "💬 คุยกับแอดมิน",
+};

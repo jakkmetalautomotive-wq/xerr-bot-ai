@@ -3,11 +3,14 @@ import type { webhook } from "@line/bot-sdk";
 import { getFaq } from "./sheet.ts";
 import { askGemini, type BotAnswer } from "./gemini.ts";
 import { getHistory, addTurn } from "./history.ts";
-import { getImageSets, findSet, buildCarousel, parseChoice, nextStepSet, stepOf, type FlexOut, type ImageSet } from "./images.ts";
-import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, adminNotice, bangkokClock } from "./shop.ts";
+import {
+  getImageSets, findSet, buildCarousel, buildQuickReply, parseChoice, nextStepSet, firstStepSet, stepOf, stepTitle, isQuickSet,
+  CATEGORY_SET, INSTALL_SET, type FlexOut, type ImageSet,
+} from "./images.ts";
+import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, adminNotice, bangkokClock } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage,
-  decodePostback, parseAddressSent,
+  decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
 } from "./order.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
@@ -72,14 +75,48 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   const sets: ImageSet[] = await (deps.getImageSets ?? getImageSets)().catch(() => []);
   const choice = parseChoice(question, sets); // ลูกค้าเพิ่งกดปุ่มเลือกจากการ์ดไหม
 
-  // กดการ์ดขั้นสุดท้าย + คิดราคาได้ → เข้าขั้นสั่งซื้อทันที (ไม่ต้องรอ AI): ชวนเพิ่มป้ายภาษี
-  if (choice && !nextStepSet(sets, choice.set, choice.picked)) {
-    const product = stepOf(choice.set.name)?.product;
-    if (product && priceOrder(sets, { code: "", product, picks: choice.picked, tax: false })) {
-      await send(deps, replyToken, userId, [taxUpsellMessage(product, choice.picked)]);
-      addTurn(userId, question, `สรุปที่เลือก ${choice.picked.join(" / ")} · ชวนเพิ่มกรอบป้ายภาษีแล้ว รอลูกค้ากดปุ่ม`);
+  // ปุ่ม Rich Menu ที่ตอบได้ด้วยโค้ด
+  const category = sets.find((s) => s.name === CATEGORY_SET);
+  if (question.trim() === MENU.order && category) {
+    await send(deps, replyToken, userId, ["เลือกประเภทกรอบป้ายได้เลยครับ 😊", buildCarousel(category)]);
+    addTurn(userId, question, `[ส่งการ์ด "${CATEGORY_SET}" ให้ลูกค้าเลือกแล้ว]`);
+    return;
+  }
+  if (question.trim() === MENU.price && category) {
+    const text = priceListText(category);
+    await send(deps, replyToken, userId, [{ type: "text", text, quickReply: { items: [{ type: "action", action: { type: "message", label: MENU.order, text: MENU.order } }] } }]);
+    addTurn(userId, question, text);
+    return;
+  }
+  const install = sets.find((s) => s.name === INSTALL_SET);
+  if (question.trim() === MENU.install && install) {
+    await send(deps, replyToken, userId, ["เลือกรุ่นที่ต้องการดูวิธีติดตั้งได้เลยครับ 😊 กดปุ่มใต้การ์ดเพื่อเปิดคลิปใน YouTube", buildCarousel(install)]);
+    addTurn(userId, question, `[ส่งการ์ด "${INSTALL_SET}" ให้ลูกค้าแล้ว]`);
+    return;
+  }
+  if (question.trim() === MENU.admin) {
+    await send(deps, replyToken, userId, ["รับทราบครับ 🙏 แจ้งแอดมินให้แล้ว พิมพ์เรื่องที่ต้องการทิ้งไว้ได้เลยครับ", adminNotice()]);
+    await notifyAdmin(deps, userId, "ลูกค้ากดปุ่ม \"คุยกับแอดมิน\"");
+    return;
+  }
+
+  // กดการ์ดประเภทสินค้า → ส่งขั้นแรกของสินค้านั้น (ไม่ต้องรอ AI) · ไม่มีตัวเลือก → สั่งได้เลย
+  if (choice && choice.set.name === CATEGORY_SET) {
+    const product = choice.item.name;
+    const first = firstStepSet(sets, product);
+    if (first) {
+      const price = choice.item.price ? ` ${choice.item.price}` : "";
+      await send(deps, replyToken, userId, withSet([`${productLabel(product)}${price} 😊 ${stepTitle(first.name) || "เลือกแบบ"}ได้เลยครับ`], first, []));
+      addTurn(userId, question, `[ส่งตัวเลือกชุด "${first.name}" ให้ลูกค้าเลือกแล้ว]`);
       return;
     }
+    if (await startOrder(deps, replyToken, userId, sets, product, [], question)) return;
+  }
+
+  // กดการ์ดขั้นสุดท้าย + คิดราคาได้ → เข้าขั้นสั่งซื้อทันที (ไม่ต้องรอ AI)
+  if (choice && !nextStepSet(sets, choice.set, choice.picked)) {
+    const product = stepOf(choice.set.name)?.product;
+    if (product && (await startOrder(deps, replyToken, userId, sets, product, choice.picked, question))) return;
   }
 
   let answer: BotAnswer;
@@ -91,13 +128,13 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     answer = choice ? choiceFallback(sets, choice) : { reply: ERROR_REPLY, needsAdmin: true, adminNote: `ระบบขัดข้อง (${(err as Error).message}) ลูกค้าพิมพ์ว่า: ${question.slice(0, 200)}` };
   }
 
-  const out: OutMessage[] = [answer.reply];
+  let out: OutMessage[] = [answer.reply];
+  if (answer.needsAdmin) out.push(adminNotice());
   let set = answer.showSet ? findSet(sets, answer.showSet) : undefined;
   // กันพลาด: ลูกค้ากดเลือกขั้น N แต่ AI ลืมส่งขั้นถัดไป → ส่งให้เอง
   if (!set && !answer.needsAdmin && choice) set = nextStepSet(sets, choice.set, choice.picked);
   // ปุ่มของการ์ดชุดถัดไปพกตัวเลือกที่เลือกมาแล้ว → บอทรู้ครบแม้หน่วยความจำหาย
-  if (set?.items.length) out.push(buildCarousel(set, choice && set !== choice.set ? choice.picked : []));
-  if (answer.needsAdmin) out.push(adminNotice());
+  if (set?.items.length) out = withSet(out, set, choice && set !== choice.set && choice.set.name !== CATEGORY_SET ? choice.picked : []);
   await send(deps, replyToken, userId, out);
   if (answer.reply !== ERROR_REPLY) addTurn(userId, question, set ? `${answer.reply}\n[ส่งการ์ดรูปชุด "${set.name}" ให้ลูกค้าเลือกแล้ว]` : answer.reply);
   if (answer.needsAdmin) await notifyAdmin(deps, userId, answer.adminNote || (answer.reply === DEFAULT_REPLY ? `คำถามที่ไม่มีใน FAQ: ${question}` : question));
@@ -114,15 +151,10 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
     const order = priceOrder(sets, { code: newOrderCode(), product: pb.p, picks: pb.s, tax: pb.y === 1 });
     if (!order) {
       await send(deps, replyToken, userId, [DEFAULT_REPLY, adminNotice()]);
-      await notifyAdmin(deps, userId, `คิดยอดไม่ได้ (ข้อมูลการ์ดเปลี่ยน?) ลูกค้าเลือก: ${pb.s.join(", ")}`);
+      await notifyAdmin(deps, userId, `คิดยอดไม่ได้ (ข้อมูลการ์ดเปลี่ยน?) ลูกค้าเลือก: ${pb.p} ${pb.s.join(", ")}`);
       return;
     }
-    const hasForm = Boolean(deps.liffId && deps.orderSecret);
-    const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", hasForm)];
-    if (hasForm) out.push(addressButtonMessage(deps.liffId!, signOrder({ code: order.code, product: order.product, picks: order.picks, tax: order.tax, total: order.total }, deps.orderSecret!)));
-    await send(deps, replyToken, userId, out);
-    addTurn(userId, pb.y ? "เพิ่มป้ายภาษี" : "ไม่เพิ่มป้ายภาษี", `ส่งสรุปออเดอร์ ${order.code} ยอด ${order.total}.- แล้ว รอลูกค้ากรอกที่อยู่และโอน`);
-    if (!deps.paymentInfo?.trim()) await notifyAdmin(deps, userId, `ออเดอร์ ${order.code} ยอด ${order.total}.- — ยังไม่ได้ตั้ง PAYMENT_INFO ต้องส่งเลขบัญชีให้ลูกค้าเอง`);
+    await sendOrderSummary(deps, replyToken, userId, order, pb.y ? "เพิ่มป้ายภาษี" : "ไม่เพิ่มป้ายภาษี");
     return;
   }
 
@@ -137,6 +169,50 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
       await deps.line.reply(replyToken, [`แจ้งลูกค้าแล้วว่ายอดออเดอร์ ${pb.c} ยังไม่ตรง · คุยต่อใน LINE OA Manager ได้เลย`]);
     }
   }
+}
+
+// เลือกครบแล้ว + คิดราคาได้ → ชวนเพิ่มป้ายภาษี (ปุ่ม) · สั่งป้ายภาษีอย่างเดียว → สรุปยอดเลย (ค่าส่ง 15 ไม่ชวนซื้อเพิ่ม)
+// คิดราคาไม่ได้ → false (ให้ AI / แอดมินดูต่อ)
+async function startOrder(deps: BotDeps, replyToken: string, userId: string, sets: ImageSet[], product: string, picks: string[], question: string): Promise<boolean> {
+  if (isTaxOnly(product)) {
+    const order = priceOrder(sets, { code: newOrderCode(), product, picks, tax: false });
+    if (!order) return false;
+    await sendOrderSummary(deps, replyToken, userId, order, question);
+    return true;
+  }
+  if (!priceOrder(sets, { code: "", product, picks, tax: false })) return false;
+  await send(deps, replyToken, userId, [taxUpsellMessage(product, picks)]);
+  addTurn(userId, question, `สรุปที่เลือก ${productLabel(product)} ${picks.join(" / ")} · ชวนเพิ่มกรอบป้ายภาษีแล้ว รอลูกค้ากดปุ่ม`);
+  return true;
+}
+
+// สรุปยอด + เลขบัญชี + ปุ่มกรอกที่อยู่
+async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: string, order: PricedOrder, turnText: string) {
+  const hasForm = Boolean(deps.liffId && deps.orderSecret);
+  const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", hasForm)];
+  if (hasForm) out.push(addressButtonMessage(deps.liffId!, signOrder({ code: order.code, product: order.product, picks: order.picks, tax: order.tax, total: order.total }, deps.orderSecret!)));
+  await send(deps, replyToken, userId, out);
+  addTurn(userId, turnText, `ส่งสรุปออเดอร์ ${order.code} ยอด ${order.total}.- แล้ว รอลูกค้ากรอกที่อยู่และโอน`);
+  if (!deps.paymentInfo?.trim()) await notifyAdmin(deps, userId, `ออเดอร์ ${order.code} ยอด ${order.total}.- — ยังไม่ได้ตั้ง PAYMENT_INFO ต้องส่งเลขบัญชีให้ลูกค้าเอง`);
+}
+
+// ส่งชุดตัวเลือก: มีรูป → การ์ดปัดดู · ไม่มีรูป → ปุ่มด่วนติดข้อความสุดท้าย (ปุ่มด่วนแสดงเฉพาะใต้ข้อความล่าสุด)
+function withSet(out: OutMessage[], set: ImageSet, picked: string[]): OutMessage[] {
+  if (!isQuickSet(set)) return [...out, buildCarousel(set, picked)];
+  const i = out.findLastIndex((m) => typeof m === "string");
+  if (i < 0) return [...out, { type: "text", text: "เลือกได้เลยครับ 😊", quickReply: buildQuickReply(set, picked) }];
+  return [...out.slice(0, i), { type: "text", text: out[i] as string, quickReply: buildQuickReply(set, picked) }, ...out.slice(i + 1)];
+}
+
+// ปุ่ม "ราคา": ราคาจากการ์ดประเภทสินค้า + กติกาค่าส่ง
+export function priceListText(category: ImageSet): string {
+  return [
+    "💰 ราคาสั่งตรงทาง LINE (1 ชุด = หน้า + หลัง)",
+    ...category.items.map((i) => `🔺 ${productLabel(i.name)}  ${i.price}`),
+    "",
+    `🚚 ค่าส่ง SPX ${SHIPPING.default}.- · ซื้อคู่${TAX_CAR.name} ส่งฟรี · สั่งป้ายภาษีอย่างเดียว ค่าส่ง ${SHIPPING.taxOnly}.-`,
+    "กด \"🛒 สั่งซื้อ\" เพื่อเลือกแบบได้เลยครับ 😊",
+  ].join("\n");
 }
 
 function choiceFallback(sets: ImageSet[], choice: NonNullable<ReturnType<typeof parseChoice>>): BotAnswer {
