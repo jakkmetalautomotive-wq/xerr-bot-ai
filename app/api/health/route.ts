@@ -7,7 +7,8 @@ import { MODEL } from "@/lib/gemini.ts";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-let geminiCache: { at: number; result: unknown } | null = null;
+let geminiCache: { at: number; model: string; result: unknown } | null = null;
+export const maxDuration = 30;
 
 const errMsg = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 500);
 
@@ -21,22 +22,27 @@ export async function GET(req: Request) {
     out.sheet = { ok: false, error: errMsg(e) };
   }
 
-  if (new URL(req.url).searchParams.get("gemini") === "1") {
-    if (geminiCache && Date.now() - geminiCache.at < 60_000) out.gemini = geminiCache.result;
+  const params = new URL(req.url).searchParams;
+  if (params.get("gemini") === "1") {
+    // ?model=gemini-xxx ไว้ลองรุ่นอื่น (รับเฉพาะชื่อที่ขึ้นต้นด้วย gemini-)
+    const model = /^gemini-[a-z0-9.-]+$/.test(params.get("model") ?? "") ? params.get("model")! : MODEL;
+    out.model = model;
+    if (geminiCache && geminiCache.model === model && Date.now() - geminiCache.at < 60_000) out.gemini = geminiCache.result;
     else {
       let result: unknown;
+      const t0 = Date.now();
       try {
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         const res = await ai.models.generateContent({
-          model: MODEL,
+          model,
           contents: "ตอบคำว่า OK คำเดียว",
-          config: { temperature: 1.0, maxOutputTokens: 1024, httpOptions: { timeout: 15_000 } },
+          config: { temperature: 1.0, maxOutputTokens: 1024, httpOptions: { timeout: 25_000 } },
         });
-        result = { ok: true, finishReason: res.candidates?.[0]?.finishReason, text: res.text?.slice(0, 50) };
+        result = { ok: true, ms: Date.now() - t0, finishReason: res.candidates?.[0]?.finishReason, text: res.text?.slice(0, 50) };
       } catch (e) {
-        result = { ok: false, error: errMsg(e) };
+        result = { ok: false, ms: Date.now() - t0, error: errMsg(e) };
       }
-      geminiCache = { at: Date.now(), result };
+      geminiCache = { at: Date.now(), model, result };
       out.gemini = result;
     }
   }
