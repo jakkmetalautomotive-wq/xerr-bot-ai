@@ -5,6 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 import { getFaq, sheetUrls } from "@/lib/sheet.ts";
 import { MODEL, THINKING, askGemini } from "@/lib/gemini.ts";
 import { bangkokClock } from "@/lib/shop.ts";
+import { getImageSets } from "@/lib/images.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,9 @@ export async function GET(req: Request) {
     out.sheet = { ok: false, error: errMsg(e) };
   }
 
+  // ชุดการ์ดรูป (จากแท็บ "รูปสินค้า" หรือชุดตัวอย่าง)
+  out.imageSets = (await getImageSets()).map((s) => ({ name: s.name, cards: s.items.length, sample: s.items[0]?.image.includes("/samples/") }));
+
   const params = new URL(req.url).searchParams;
   // เช็ค Gemini กินโควตาคีย์ → ต้องตั้ง HEALTH_KEY ใน Vercel แล้วแนบ ?key=... ให้ตรง (ไม่ตั้ง = ปิดไว้)
   const healthKey = process.env.HEALTH_KEY ?? "";
@@ -34,7 +38,7 @@ export async function GET(req: Request) {
     // ?model=gemini-xxx ไว้ลองรุ่นอื่น (รับเฉพาะชื่อที่ขึ้นต้นด้วย gemini-)
     const model = /^gemini-[a-z0-9.-]+$/.test(params.get("model") ?? "") ? params.get("model")! : MODEL;
     out.model = model;
-    const key = `${model}|${params.get("full") ?? ""}`;
+    const key = `${model}|${params.get("full") ?? ""}|${params.get("q") ?? ""}`;
     if (geminiCache && geminiCache.model === key && Date.now() - geminiCache.at < 60_000) out.gemini = geminiCache.result;
     else {
       let result: unknown;
@@ -42,7 +46,9 @@ export async function GET(req: Request) {
       try {
         if (params.get("full") === "1") {
           // ถามจริงด้วย FAQ + prompt เต็ม เหมือนลูกค้าทัก
-          const answer = await askGemini(await getFaq(), [], "กรอบป้าย ABS ราคาเท่าไหร่ครับ", bangkokClock().label, undefined, model);
+          const sets = (await getImageSets()).map((s) => s.name);
+          const q = params.get("q")?.slice(0, 200) || "กรอบป้าย ABS ราคาเท่าไหร่ครับ";
+          const answer = await askGemini(await getFaq(), [], q, bangkokClock().label, { model, imageSets: sets });
           result = { ok: true, ms: Date.now() - t0, thinking: THINKING, answer };
         } else {
           const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });

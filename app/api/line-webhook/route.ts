@@ -1,7 +1,7 @@
 // LINE Webhook: ตรวจลายเซ็น → ตอบ LINE ว่า "ได้รับแล้ว" ทันที → ประมวลผลต่อเบื้องหลัง
 import { messagingApi, validateSignature, type webhook } from "@line/bot-sdk";
 import { waitUntil } from "@vercel/functions";
-import { handleEvent, type LinePort } from "@/lib/bot.ts";
+import { handleEvent, type LinePort, type OutMessage } from "@/lib/bot.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,19 +13,19 @@ function lineClient() {
   return client;
 }
 
-const toMessages = (texts: string[]) =>
-  texts
-    .map((t) => t.trim())
-    .filter(Boolean)
+// LINE ส่งได้ครั้งละไม่เกิน 5 ข้อความ · ข้อความละไม่เกิน 5,000 ตัวอักษร
+const toMessages = (messages: OutMessage[]): messagingApi.Message[] =>
+  messages
+    .filter((m) => (typeof m === "string" ? m.trim() !== "" : true))
     .slice(0, 5)
-    .map((text) => ({ type: "text" as const, text: text.slice(0, 5000) }));
+    .map((m) => (typeof m === "string" ? { type: "text", text: m.trim().slice(0, 5000) } : (m as unknown as messagingApi.FlexMessage)));
 
 const line: LinePort = {
-  async reply(replyToken, texts) {
-    await lineClient().replyMessage({ replyToken, messages: toMessages(texts) });
+  async reply(replyToken, msgs) {
+    await lineClient().replyMessage({ replyToken, messages: toMessages(msgs) });
   },
-  async push(to, texts) {
-    await lineClient().pushMessage({ to, messages: toMessages(texts) });
+  async push(to, msgs) {
+    await lineClient().pushMessage({ to, messages: toMessages(msgs) });
   },
   async showLoading(userId) {
     await lineClient().showLoadingAnimation({ chatId: userId, loadingSeconds: 20 });

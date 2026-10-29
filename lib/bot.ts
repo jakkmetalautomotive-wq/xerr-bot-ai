@@ -3,12 +3,16 @@ import type { webhook } from "@line/bot-sdk";
 import { getFaq } from "./sheet.ts";
 import { askGemini, type BotAnswer } from "./gemini.ts";
 import { getHistory, addTurn } from "./history.ts";
+import { getImageSets, findSet, buildCarousel, type FlexOut, type ImageSet } from "./images.ts";
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, adminNotice, bangkokClock } from "./shop.ts";
+
+// ข้อความที่ส่งออก: ข้อความธรรมดา หรือการ์ด (Flex)
+export type OutMessage = string | FlexOut;
 
 // สิ่งที่บอทต้องใช้จาก LINE (ทำเป็น interface เพื่อสลับเป็นตัวปลอมตอนทดสอบ)
 export interface LinePort {
-  reply(replyToken: string, texts: string[]): Promise<void>;
-  push(to: string, texts: string[]): Promise<void>;
+  reply(replyToken: string, messages: OutMessage[]): Promise<void>;
+  push(to: string, messages: OutMessage[]): Promise<void>;
   showLoading(userId: string): Promise<void>;
   displayName(userId: string): Promise<string>;
 }
@@ -17,7 +21,8 @@ export interface BotDeps {
   line: LinePort;
   adminUserId?: string;
   getFaq?: typeof getFaq;
-  ask?: (faq: string, question: string, userId: string) => Promise<BotAnswer>;
+  getImageSets?: () => Promise<ImageSet[]>;
+  ask?: (faq: string, question: string, userId: string, imageSets: string[]) => Promise<BotAnswer>;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
@@ -46,33 +51,37 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   await deps.line.showLoading(userId).catch(() => {});
 
   let answer: BotAnswer;
+  let sets: ImageSet[] = [];
   try {
-    const faq = await (deps.getFaq ?? getFaq)();
-    answer = await (deps.ask ?? defaultAsk)(faq, question, userId);
+    const [faq, imageSets] = await Promise.all([(deps.getFaq ?? getFaq)(), (deps.getImageSets ?? getImageSets)().catch(() => [])]);
+    sets = imageSets;
+    answer = await (deps.ask ?? defaultAsk)(faq, question, userId, sets.map((s) => s.name));
   } catch (err) {
     console.error("[bot] ตอบไม่ได้:", (err as Error).message);
     answer = { reply: ERROR_REPLY, needsAdmin: true, adminNote: `ระบบขัดข้อง (${(err as Error).message}) ลูกค้าพิมพ์ว่า: ${question.slice(0, 200)}` };
   }
 
-  const texts = [answer.reply];
-  if (answer.needsAdmin) texts.push(adminNotice());
-  await send(deps, replyToken, userId, texts);
-  if (answer.reply !== ERROR_REPLY) addTurn(userId, question, answer.reply);
+  const out: OutMessage[] = [answer.reply];
+  const set = answer.showSet ? findSet(sets, answer.showSet) : undefined;
+  if (set?.items.length) out.push(buildCarousel(set));
+  if (answer.needsAdmin) out.push(adminNotice());
+  await send(deps, replyToken, userId, out);
+  if (answer.reply !== ERROR_REPLY) addTurn(userId, question, set ? `${answer.reply}\n[ส่งการ์ดรูปชุด "${set.name}" ให้ลูกค้าเลือกแล้ว]` : answer.reply);
   if (answer.needsAdmin) await notifyAdmin(deps, userId, answer.adminNote || (answer.reply === DEFAULT_REPLY ? `คำถามที่ไม่มีใน FAQ: ${question}` : question));
 }
 
-function defaultAsk(faq: string, question: string, userId: string) {
-  return askGemini(faq, getHistory(userId), question, bangkokClock().label);
+function defaultAsk(faq: string, question: string, userId: string, imageSets: string[]) {
+  return askGemini(faq, getHistory(userId), question, bangkokClock().label, { imageSets });
 }
 
 // ตอบด้วย reply token ก่อน (ฟรี) ถ้าไม่ได้ค่อย push
-async function send(deps: BotDeps, replyToken: string, userId: string, texts: string[]) {
+async function send(deps: BotDeps, replyToken: string, userId: string, messages: OutMessage[]) {
   try {
-    await deps.line.reply(replyToken, texts);
+    await deps.line.reply(replyToken, messages);
   } catch (err) {
     console.error("[line] reply ไม่สำเร็จ ลอง push แทน:", (err as Error).message);
     try {
-      await deps.line.push(userId, texts);
+      await deps.line.push(userId, messages);
     } catch (err2) {
       console.error("[line] push ไม่สำเร็จ:", (err2 as Error).message);
     }

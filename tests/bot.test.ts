@@ -5,7 +5,7 @@ import { FinishReason } from "@google/genai";
 import { parseCsv, csvToFaqText, getFaq, sheetUrls, _resetSheetCache } from "../lib/sheet.ts";
 import { buildSystemPrompt, wrapQuestion } from "../lib/prompt.ts";
 import { askGemini, parseAnswer } from "../lib/gemini.ts";
-import { handleEvent, type LinePort } from "../lib/bot.ts";
+import { handleEvent, type LinePort, type OutMessage } from "../lib/bot.ts";
 import { adminNotice, DEFAULT_REPLY, ERROR_REPLY } from "../lib/shop.ts";
 
 // ---------- Sheet ----------
@@ -86,9 +86,9 @@ function fakeGemini(text: string, finishReason = FinishReason.STOP) {
 }
 
 test("ส่งค่าตามสเปก: temperature 1.0, maxOutputTokens 1024, คำถามอยู่ท้าย", async () => {
-  const g = fakeGemini('{"reply":"ส่ง SPX ครับ","needs_admin":false,"admin_note":""}');
-  const a = await askGemini("faq", [], "ส่งขนส่งอะไร", "now", g.fn);
-  assert.deepEqual(a, { reply: "ส่ง SPX ครับ", needsAdmin: false, adminNote: "" });
+  const g = fakeGemini('{"reply":"ส่ง SPX ครับ","needs_admin":false,"admin_note":"","show_set":""}');
+  const a = await askGemini("faq", [], "ส่งขนส่งอะไร", "now", { generate: g.fn });
+  assert.deepEqual(a, { reply: "ส่ง SPX ครับ", needsAdmin: false, adminNote: "", showSet: "" });
   const cfg = g.calls[0].config;
   assert.equal(cfg.temperature, 1.0);
   assert.equal(cfg.maxOutputTokens, 1024);
@@ -98,7 +98,7 @@ test("ส่งค่าตามสเปก: temperature 1.0, maxOutputTokens 
 
 test("finishReason = MAX_TOKENS → ส่ง default reply ไม่ส่งครึ่งประโยค", async () => {
   const g = fakeGemini('{"reply":"กรอบป้ายของร้านใส่ได้ทุกรุ่นครับ ส่วนขนาด', FinishReason.MAX_TOKENS);
-  const a = await askGemini("faq", [], "ใส่ได้ไหม", "now", g.fn);
+  const a = await askGemini("faq", [], "ใส่ได้ไหม", "now", { generate: g.fn });
   assert.equal(a.reply, DEFAULT_REPLY);
   assert.equal(a.needsAdmin, true);
 });
@@ -110,7 +110,7 @@ test("คำตอบ AI เสีย / มี markdown → จัดการ�
 
 // ---------- ทั้งระบบ (LINE ปลอม) ----------
 function fakeLine() {
-  const sent: { kind: string; to: string; texts: string[] }[] = [];
+  const sent: { kind: string; to: string; texts: any[] }[] = [];
   const line: LinePort = {
     reply: async (to, texts) => void sent.push({ kind: "reply", to, texts }),
     push: async (to, texts) => void sent.push({ kind: "push", to, texts }),
@@ -170,4 +170,63 @@ test("ส่งรูป → ไม่เรียก AI ส่งต่อแ�
   assert.equal(sent[1].to, "UADMIN");
   await handleEvent(msgEvent({ type: "text", text: "myid" }, "Uxyz"), deps);
   assert.deepEqual(sent[2].texts, ["Uxyz"]);
+});
+
+// ---------- การ์ดรูป ----------
+import { parseImageSets, buildCarousel, driveFileId, lineImageUrl, sampleSets, findSet, choiceText } from "../lib/images.ts";
+
+test("อ่านแท็บรูปสินค้า: จัดกลุ่มตามชุด เรียงตามลำดับ ข้ามแถวไม่มีรูป · แท็บผิด → ว่าง", () => {
+  const csv = [
+    "ชุดรูป,ลำดับ,ชื่อแบบ,ราคา,ลิงก์รูป,รายละเอียด",
+    "สีอะคริลิค,2,ขาว,399.-,https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view?usp=sharing,",
+    "สีอะคริลิค,1,ดำ,399.-,https://example.com/black.jpg,มีเส้นขอบ",
+    "สีอะคริลิค,3,เทา,399.-,,",
+    "รุ่นกรอบ,1,สแตนเลส,279.-,https://example.com/ss.png,",
+  ].join("\n");
+  const sets = parseImageSets(csv);
+  assert.deepEqual(sets.map((s) => [s.name, s.items.map((i) => i.name)]), [["สีอะคริลิค", ["ดำ", "ขาว"]], ["รุ่นกรอบ", ["สแตนเลส"]]]);
+  assert.deepEqual(parseImageSets("รหัส,สินค้า\nabs,ABS\n"), []);
+});
+
+test("ลิงก์ Google Drive → ส่งผ่าน /api/img · ลิงก์รูปตรงใช้ตามเดิม", () => {
+  assert.equal(driveFileId("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view?usp=sharing"), "1AbCdEfGhIjKlMn");
+  assert.equal(driveFileId("https://drive.google.com/open?id=1AbCdEfGhIjKlMn"), "1AbCdEfGhIjKlMn");
+  assert.match(lineImageUrl("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view"), /^https:\/\/.+\/api\/img\?id=1AbCdEfGhIjKlMn$/);
+  assert.equal(lineImageUrl("https://example.com/a.jpg"), "https://example.com/a.jpg");
+});
+
+test("การ์ดปัดดู: ใบละแบบ มีรูป https + ปุ่มเลือกแบบที่ N ที่ส่งข้อความกลับ", () => {
+  const set = sampleSets()[0];
+  const flex = buildCarousel(set);
+  assert.equal(flex.type, "flex");
+  assert.ok(flex.altText.length <= 400);
+  const bubbles = (flex.contents as any).contents;
+  assert.equal(bubbles.length, 4);
+  assert.match(bubbles[0].hero.url, /^https:\/\/.+\.png$/);
+  const action = bubbles[3].footer.contents[0].action;
+  assert.equal(action.type, "message");
+  assert.equal(action.label, "เลือกแบบที่ 4");
+  assert.equal(action.text, choiceText(set, set.items[3]));
+  assert.ok(action.label.length <= 20);
+});
+
+test("หาชุดรูปจากชื่อที่ AI ตอบ (ตรงหรือใกล้เคียง)", () => {
+  const sets = sampleSets();
+  assert.equal(findSet(sets, "สีกรอบอะคริลิค")?.name, "สีกรอบอะคริลิค");
+  assert.equal(findSet(sets, "อะคริลิค")?.name, "สีกรอบอะคริลิค");
+  assert.equal(findSet(sets, ""), undefined);
+  assert.equal(findSet(sets, "ชายบันได"), undefined);
+});
+
+test("AI ขอให้ส่งการ์ด → ลูกค้าได้ข้อความ + การ์ด ในคำตอบเดียว", async () => {
+  const { line, sent } = fakeLine();
+  let setsSeen: string[] = [];
+  await handleEvent(msgEvent({ type: "text", text: "อะคริลิคมีสีอะไรบ้าง" }), {
+    line, getFaq: async () => "faq", getImageSets: async () => sampleSets(),
+    ask: async (_f, _q, _u, sets) => { setsSeen = sets; return { reply: "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ", needsAdmin: false, adminNote: "", showSet: "สีกรอบอะคริลิค" }; },
+  });
+  assert.deepEqual(setsSeen, ["สีกรอบอะคริลิค"]);
+  assert.equal(sent[0].texts.length, 2);
+  assert.equal(sent[0].texts[0], "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ");
+  assert.equal((sent[0].texts[1] as any).type, "flex");
 });
