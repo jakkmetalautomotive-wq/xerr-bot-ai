@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FinishReason } from "@google/genai";
-import { parseCsv, csvToFaqText, getFaq, _resetSheetCache } from "../lib/sheet.ts";
+import { parseCsv, csvToFaqText, getFaq, sheetUrls, _resetSheetCache } from "../lib/sheet.ts";
 import { buildSystemPrompt, wrapQuestion } from "../lib/prompt.ts";
 import { askGemini, parseAnswer } from "../lib/gemini.ts";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
@@ -43,11 +43,24 @@ test("ดึง Sheet หลายลิงก์ + cache 60 วิ + ใช้�
   assert.equal(await getFaq(t0 + 61_000), faq); // ดึงใหม่ไม่ได้ → ใช้ของเก่า
 });
 
-test("ลิงก์ Sheet ที่ไม่ได้เผยแพร่เป็น CSV → แจ้ง error ชัดเจน", async () => {
+test("ได้หน้าเว็บแทน CSV → แจ้ง error ชัดเจน", async () => {
   _resetSheetCache();
   process.env.SHEET_CSV_URL = "https://a.example/edit";
   globalThis.fetch = (async () => new Response("<!DOCTYPE html><html>")) as unknown as typeof fetch;
-  await assert.rejects(getFaq(), /ไม่ใช่ CSV/);
+  await assert.rejects(getFaq(), /ได้หน้าเว็บกลับมา/);
+});
+
+test("ลิงก์ Google Sheet ธรรมดา (/edit) → แปลงเป็นลิงก์ CSV ของทุกแท็บเอง", () => {
+  const id = "1bWaaxkty1PJzn09B_p8os9_l5sPVgFTOqjDe3YeNyUc";
+  const urls = sheetUrls(`https://docs.google.com/spreadsheets/d/${id}/edit?usp=sharing`, "");
+  assert.equal(urls.length, 4);
+  assert.ok(urls.every((u) => u.startsWith(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=`)));
+  assert.ok(urls.some((u) => u.endsWith(encodeURIComponent("Q&A"))));
+  // มี gid → แท็บเดียว · ลิงก์ CSV อยู่แล้ว → ใช้ตามเดิม
+  assert.deepEqual(sheetUrls(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=784319218`, ""), [`https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=784319218`]);
+  const csv = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=1`;
+  assert.deepEqual(sheetUrls(csv, ""), [csv]);
+  assert.equal(sheetUrls(`https://docs.google.com/spreadsheets/d/${id}/edit`, "Q&A, สินค้าและราคา").length, 2);
 });
 
 // ---------- Prompt ----------

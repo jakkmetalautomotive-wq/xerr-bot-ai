@@ -6,11 +6,27 @@ const FETCH_TIMEOUT_MS = 4_000;
 
 let cache: { text: string; at: number } | null = null;
 
-export function sheetUrls(raw = process.env.SHEET_CSV_URL ?? ""): string[] {
+// แท็บที่บอทอ่าน เมื่อใส่ลิงก์ Google Sheet ธรรมดา (แก้ชื่อแท็บได้ด้วย SHEET_TABS คั่นด้วย comma)
+export const DEFAULT_TABS = ["สินค้าและราคา", "ค่าส่ง โปร ชำระเงิน", "Q&A", "คลิป YouTube"];
+
+// รับได้ทั้งลิงก์ CSV และลิงก์ Google Sheet ธรรมดา (/edit, /view, ลิงก์แชร์)
+// ลิงก์ธรรมดา → มี gid ใช้แท็บนั้นแท็บเดียว · ไม่มี gid ใช้ทุกแท็บใน DEFAULT_TABS
+export function expandSheetUrl(url: string, tabs: string[] = DEFAULT_TABS): string[] {
+  const m = url.match(/docs\.google\.com\/spreadsheets\/d\/([A-Za-z0-9_-]+)/);
+  if (!m || /\/export\?|\/gviz\/|output=csv|\/pub\?/.test(url)) return [url];
+  const base = `https://docs.google.com/spreadsheets/d/${m[1]}`;
+  const gid = url.match(/[?#&]gid=(\d+)/)?.[1];
+  if (gid) return [`${base}/export?format=csv&gid=${gid}`];
+  return tabs.map((t) => `${base}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(t)}`);
+}
+
+export function sheetUrls(raw = process.env.SHEET_CSV_URL ?? "", tabsRaw = process.env.SHEET_TABS ?? ""): string[] {
+  const tabs = tabsRaw ? tabsRaw.split(",").map((t) => t.trim()).filter(Boolean) : DEFAULT_TABS;
   return raw
     .split(",")
     .map((u) => u.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .flatMap((u) => expandSheetUrl(u, tabs));
 }
 
 // แปลง CSV เป็นแถว (รองรับช่องที่มี comma / ขึ้นบรรทัดใหม่ / เครื่องหมายคำพูด)
@@ -64,7 +80,7 @@ async function fetchCsv(url: string): Promise<string> {
   const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`ดึง Sheet ไม่ได้ (${res.status}) ${url}`);
   const text = await res.text();
-  if (/^\s*<(!doctype|html)/i.test(text)) throw new Error(`ลิงก์ไม่ใช่ CSV (ได้หน้าเว็บกลับมา — ต้องเผยแพร่เป็น CSV) ${url}`);
+  if (/^\s*<(!doctype|html)/i.test(text)) throw new Error(`อ่าน Sheet ไม่ได้ (ได้หน้าเว็บกลับมา — เช็คว่าแชร์ "ทุกคนที่มีลิงก์" และชื่อแท็บถูกต้อง) ${url}`);
   return text;
 }
 
