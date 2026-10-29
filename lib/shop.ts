@@ -9,6 +9,10 @@ export const SHOP = {
   adminOpenText: "09:00",
 };
 
+// ค่าส่ง + ราคาป้ายภาษี (ตามใบประหน้า 2026 ที่จักรยืนยัน) — ใช้คิดยอดออเดอร์ด้วยโค้ด
+export const SHIPPING = { default: 30, freeWithTaxCar: 0 };
+export const TAX_CAR = { name: "กรอบป้ายภาษี พรบ. รถยนต์", price: 69 };
+
 // ข้อ 3: ถามเรื่องที่ไม่มีใน FAQ → ข้อความนี้ + แจ้งแอดมิน
 export const DEFAULT_REPLY = "ขอบคุณที่สอบถามครับ 🙏 เรื่องนี้ขอให้แอดมินตรวจสอบให้ก่อนนะครับ";
 

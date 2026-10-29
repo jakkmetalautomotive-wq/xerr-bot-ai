@@ -37,7 +37,7 @@ export async function askGemini(
   clockLabel: string,
   { generate = defaultGenerate(), model = MODEL, imageSets = [] }: { generate?: GenerateFn; model?: string; imageSets?: string[] } = {},
 ): Promise<BotAnswer> {
-  const res = await generate({
+  const call = () => generate({
     model,
     contents: [...history, { role: "user", parts: [{ text: wrapQuestion(question) }] }],
     config: {
@@ -51,6 +51,19 @@ export async function askGemini(
     },
   });
 
+  // ชนโควตา (429) / Google ขัดข้องชั่วคราว (5xx) แล้วล้มเร็ว → รอแป๊บแล้วลองใหม่ 1 ครั้ง
+  const t0 = Date.now();
+  let res;
+  try {
+    res = await call();
+  } catch (err) {
+    const msg = String((err as Error)?.message ?? err);
+    console.warn(`[gemini] error: ${msg.slice(0, 300)}`);
+    if (!isRetryable(msg) || Date.now() - t0 > 8_000) throw err;
+    await new Promise((r) => setTimeout(r, 1_500));
+    res = await call();
+  }
+
   const finishReason = res.candidates?.[0]?.finishReason;
   const usage = res.usageMetadata;
   console.log(
@@ -62,6 +75,10 @@ export async function askGemini(
     return { reply: DEFAULT_REPLY, needsAdmin: true, adminNote: "บอทตอบยาวเกิน (MAX_TOKENS) ลูกค้าถาม: " + question.slice(0, 200) };
   }
   return parseAnswer(res.text, question);
+}
+
+export function isRetryable(message: string): boolean {
+  return /\b(429|500|502|503|504)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|overloaded|INTERNAL|fetch failed|ECONNRESET/i.test(message);
 }
 
 export function parseAnswer(text: string | undefined, question: string): BotAnswer {

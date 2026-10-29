@@ -3,11 +3,15 @@ import type { webhook } from "@line/bot-sdk";
 import { getFaq } from "./sheet.ts";
 import { askGemini, type BotAnswer } from "./gemini.ts";
 import { getHistory, addTurn } from "./history.ts";
-import { getImageSets, findSet, buildCarousel, parseChoice, nextStepSet, type FlexOut, type ImageSet } from "./images.ts";
+import { getImageSets, findSet, buildCarousel, parseChoice, nextStepSet, stepOf, type FlexOut, type ImageSet } from "./images.ts";
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, adminNotice, bangkokClock } from "./shop.ts";
+import {
+  priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage,
+  decodePostback, parseAddressSent,
+} from "./order.ts";
 
-// ข้อความที่ส่งออก: ข้อความธรรมดา หรือการ์ด (Flex)
-export type OutMessage = string | FlexOut;
+// ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
+export type OutMessage = string | FlexOut | { type: string; [key: string]: unknown };
 
 // สิ่งที่บอทต้องใช้จาก LINE (ทำเป็น interface เพื่อสลับเป็นตัวปลอมตอนทดสอบ)
 export interface LinePort {
@@ -23,12 +27,18 @@ export interface BotDeps {
   getFaq?: typeof getFaq;
   getImageSets?: () => Promise<ImageSet[]>;
   ask?: (faq: string, question: string, userId: string, imageSets: string[]) => Promise<BotAnswer>;
+  // สั่งซื้อ: LIFF ID ของแบบฟอร์ม · ข้อความเลขบัญชี · คีย์เซ็นออเดอร์ (ใช้ Channel secret)
+  liffId?: string;
+  paymentInfo?: string;
+  orderSecret?: string;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
 
 export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<void> {
-  if (event.type !== "message" || event.source?.type !== "user" || !event.source.userId) return;
+  if (event.source?.type !== "user" || !event.source.userId) return;
+  if (event.type === "postback") return handlePostback(event as webhook.PostbackEvent, event.source.userId, deps);
+  if (event.type !== "message") return;
   const e = event as webhook.MessageEvent;
   const userId = event.source.userId;
   const replyToken = e.replyToken!;
@@ -36,6 +46,13 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
 
   if (msg.type === "text" && msg.text.trim().toLowerCase() === "myid") {
     await deps.line.reply(replyToken, [userId]);
+    return;
+  }
+
+  // ลูกค้ากดส่งแบบฟอร์มที่อยู่แล้ว (ข้อความนี้ส่งจากแบบฟอร์มในนามลูกค้า)
+  const sent = msg.type === "text" ? parseAddressSent(msg.text.trim()) : null;
+  if (sent) {
+    await send(deps, replyToken, userId, [`รับที่อยู่จัดส่งแล้วครับ ✅ ออเดอร์ ${sent.code}\nโอนยอด ${sent.total}.- แล้วส่งสลิปในแชทนี้ได้เลยครับ 🙏`]);
     return;
   }
 
@@ -54,6 +71,16 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   faqPromise.catch(() => {}); // error จัดการด้านล่าง
   const sets: ImageSet[] = await (deps.getImageSets ?? getImageSets)().catch(() => []);
   const choice = parseChoice(question, sets); // ลูกค้าเพิ่งกดปุ่มเลือกจากการ์ดไหม
+
+  // กดการ์ดขั้นสุดท้าย + คิดราคาได้ → เข้าขั้นสั่งซื้อทันที (ไม่ต้องรอ AI): ชวนเพิ่มป้ายภาษี
+  if (choice && !nextStepSet(sets, choice.set, choice.picked)) {
+    const product = stepOf(choice.set.name)?.product;
+    if (product && priceOrder(sets, { code: "", product, picks: choice.picked, tax: false })) {
+      await send(deps, replyToken, userId, [taxUpsellMessage(product, choice.picked)]);
+      addTurn(userId, question, `สรุปที่เลือก ${choice.picked.join(" / ")} · ชวนเพิ่มกรอบป้ายภาษีแล้ว รอลูกค้ากดปุ่ม`);
+      return;
+    }
+  }
 
   let answer: BotAnswer;
   try {
@@ -74,6 +101,42 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   await send(deps, replyToken, userId, out);
   if (answer.reply !== ERROR_REPLY) addTurn(userId, question, set ? `${answer.reply}\n[ส่งการ์ดรูปชุด "${set.name}" ให้ลูกค้าเลือกแล้ว]` : answer.reply);
   if (answer.needsAdmin) await notifyAdmin(deps, userId, answer.adminNote || (answer.reply === DEFAULT_REPLY ? `คำถามที่ไม่มีใน FAQ: ${question}` : question));
+}
+
+// ปุ่ม: ลูกค้าตอบเรื่องป้ายภาษี → ส่งสรุปยอด · แอดมินกดยืนยัน/ยอดไม่ตรง → แจ้งลูกค้า
+async function handlePostback(event: webhook.PostbackEvent, userId: string, deps: BotDeps) {
+  const replyToken = event.replyToken!;
+  const pb = decodePostback(event.postback.data);
+  if (!pb) return;
+
+  if (pb.k === "tax") {
+    const sets = await (deps.getImageSets ?? getImageSets)().catch(() => []);
+    const order = priceOrder(sets, { code: newOrderCode(), product: pb.p, picks: pb.s, tax: pb.y === 1 });
+    if (!order) {
+      await send(deps, replyToken, userId, [DEFAULT_REPLY, adminNotice()]);
+      await notifyAdmin(deps, userId, `คิดยอดไม่ได้ (ข้อมูลการ์ดเปลี่ยน?) ลูกค้าเลือก: ${pb.s.join(", ")}`);
+      return;
+    }
+    const hasForm = Boolean(deps.liffId && deps.orderSecret);
+    const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", hasForm)];
+    if (hasForm) out.push(addressButtonMessage(deps.liffId!, signOrder({ code: order.code, product: order.product, picks: order.picks, tax: order.tax, total: order.total }, deps.orderSecret!)));
+    await send(deps, replyToken, userId, out);
+    addTurn(userId, pb.y ? "เพิ่มป้ายภาษี" : "ไม่เพิ่มป้ายภาษี", `ส่งสรุปออเดอร์ ${order.code} ยอด ${order.total}.- แล้ว รอลูกค้ากรอกที่อยู่และโอน`);
+    if (!deps.paymentInfo?.trim()) await notifyAdmin(deps, userId, `ออเดอร์ ${order.code} ยอด ${order.total}.- — ยังไม่ได้ตั้ง PAYMENT_INFO ต้องส่งเลขบัญชีให้ลูกค้าเอง`);
+    return;
+  }
+
+  // ปุ่มของแอดมิน — รับเฉพาะจากแอดมินจริง
+  if (pb.k === "adm") {
+    if (!deps.adminUserId || userId !== deps.adminUserId) return;
+    if (pb.a === "ok") {
+      await deps.line.push(pb.u, [`ได้รับยอดชำระ ${pb.t.toLocaleString("en-US")}.- แล้วครับ ✅ ออเดอร์ ${pb.c}\nจัดส่ง SPX รอบถัดไป (ตัดรอบเที่ยง จันทร์–เสาร์) ขอบคุณที่อุดหนุนครับ 🙏`]);
+      await deps.line.reply(replyToken, [`✅ ยืนยันออเดอร์ ${pb.c} แล้ว · แจ้งลูกค้าแล้ว`]);
+    } else {
+      await deps.line.push(pb.u, [`ขออภัยครับ ยอดโอนของออเดอร์ ${pb.c} ยังไม่ตรง/ยังไม่พบยอด เดี๋ยวแอดมินติดต่อกลับในแชทนี้นะครับ 🙏`]);
+      await deps.line.reply(replyToken, [`แจ้งลูกค้าแล้วว่ายอดออเดอร์ ${pb.c} ยังไม่ตรง · คุยต่อใน LINE OA Manager ได้เลย`]);
+    }
+  }
 }
 
 function choiceFallback(sets: ImageSet[], choice: NonNullable<ReturnType<typeof parseChoice>>): BotAnswer {

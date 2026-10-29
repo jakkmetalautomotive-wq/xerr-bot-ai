@@ -277,15 +277,25 @@ test("AI ล่มตอนลูกค้ากดการ์ด → ยัง
   assert.equal(sent.length, 1); // ไม่ต้องแจ้งแอดมิน
 });
 
-test("AI ล่มตอนกดขั้นสุดท้าย → สรุปที่เลือกให้ลูกค้า + แจ้งแอดมินพร้อมรายการ", async () => {
+test("Sheet/AI ล่มตอนกดขั้นสุดท้าย → ยังเข้าขั้นสั่งซื้อได้ (คิดยอดจากการ์ด ไม่ต้องใช้ AI)", async () => {
   const { line, sent } = fakeLine();
   const sets = sampleSets();
   await handleEvent(msgEvent({ type: "text", text: choiceText(sets[2], sets[2].items[0], ["สีเทา ไร้เส้นขอบ", "สั้น-ยาว"]) }), {
     line, adminUserId: "UADMIN", getFaq: async () => { throw new Error("sheet down"); }, getImageSets: async () => sets,
   });
-  assert.match(sent[0].texts[0], /สรุปที่เลือก: สีเทา ไร้เส้นขอบ, สั้น-ยาว, มีเส้นกลาง/);
+  assert.match(sent[0].texts[0].text, /สรุปที่เลือก: กรอบป้ายอะคริลิค สีเทา ไร้เส้นขอบ \/ สั้น-ยาว \/ มีเส้นกลาง/);
+});
+
+test("สินค้าที่การ์ดไม่มีราคา + AI ล่มตอนขั้นสุดท้าย → สรุปที่เลือก + แจ้งแอดมิน", async () => {
+  const { line, sent } = fakeLine();
+  const mk = (name: string, names: string[]) => ({ name, items: names.map((n, i) => ({ order: i + 1, name: n, price: "", image: "https://x/a.png", detail: "" })) });
+  const sets = [mk("สแตนเลส ขั้น 1 เลือกแบบ", ["ขอบใหญ่"]), mk("สแตนเลส ขั้น 2 เลือกแผ่นใส", ["มีแผ่นใส"])];
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[1], sets[1].items[0], ["ขอบใหญ่"]) }), {
+    line, adminUserId: "UADMIN", getFaq: async () => { throw new Error("sheet down"); }, getImageSets: async () => sets,
+  });
+  assert.match(sent[0].texts[0], /สรุปที่เลือก: ขอบใหญ่, มีแผ่นใส/);
   assert.equal(sent[1].to, "UADMIN");
-  assert.match(sent[1].texts[0], /เลือกครบแล้ว: สีเทา ไร้เส้นขอบ, สั้น-ยาว, มีเส้นกลาง \(อะคริลิค\)/);
+  assert.match(sent[1].texts[0], /เลือกครบแล้ว: ขอบใหญ่, มีแผ่นใส \(สแตนเลส\)/);
 });
 
 test("ลูกค้ากดเลือกสี แต่ AI ลืมส่งขั้นต่อ → บอทส่งการ์ดขั้นขนาดให้เอง (ปุ่มพกสีที่เลือก)", async () => {
@@ -299,4 +309,114 @@ test("ลูกค้ากดเลือกสี แต่ AI ลืมส่
   assert.equal(flex.type, "flex");
   assert.match(flex.altText, /ขั้น 2 เลือกขนาด/);
   assert.match(flex.contents.contents[0].footer.contents[0].action.text, /\| เลือกแล้ว: สีดำ มีเส้นขอบ$/);
+});
+
+// ---------- สั่งซื้อ ----------
+import { priceOrder, signOrder, verifyOrder, singlePrice, validateAddress, decodePostback, orderSummaryText, newOrderCode, addressSentText } from "../lib/order.ts";
+import { isRetryable } from "../lib/gemini.ts";
+
+const PICKS = ["สีดำ มีเส้นขอบ", "สั้น-ยาว", "มีเส้นกลาง"];
+
+test("คิดยอดด้วยโค้ด: ราคาจากขนาด + ป้ายภาษี 69 / ค่าส่ง 30 หรือฟรี", () => {
+  const sets = sampleSets();
+  assert.equal(singlePrice("419.-"), 419);
+  assert.equal(singlePrice("399.- / 419.-"), null);
+  const noTax = priceOrder(sets, { code: "XR-T", product: "อะคริลิค", picks: PICKS, tax: false })!;
+  assert.deepEqual([noTax.base, noTax.taxPrice, noTax.shipping, noTax.total], [419, 0, 30, 449]);
+  const withTax = priceOrder(sets, { code: "XR-T", product: "อะคริลิค", picks: ["สีขาว ไร้เส้นขอบ", "สั้น-สั้น", "ไม่มีเส้นกลาง"], tax: true })!;
+  assert.deepEqual([withTax.base, withTax.taxPrice, withTax.shipping, withTax.total], [399, 69, 0, 468]);
+  assert.equal(priceOrder(sets, { code: "x", product: "อะคริลิค", picks: ["สีชมพู"], tax: false }), null);
+  assert.match(newOrderCode(), /^XR-[A-Z2-9]{4}$/);
+});
+
+test("ลายเซ็นออเดอร์: แก้ยอด/รายการในลิงก์ → ใช้ไม่ได้", () => {
+  const token = signOrder({ code: "XR-AB12", product: "อะคริลิค", picks: PICKS, tax: true, total: 488 }, "secret");
+  assert.deepEqual(verifyOrder(token, "secret"), { code: "XR-AB12", product: "อะคริลิค", picks: PICKS, tax: true, total: 488 });
+  assert.equal(verifyOrder(token, "other-secret"), null);
+  const [data, sig] = token.split(".");
+  const forged = Buffer.from(Buffer.from(data, "base64url").toString().replace("488", "1")).toString("base64url");
+  assert.equal(verifyOrder(`${forged}.${sig}`, "secret"), null);
+});
+
+test("สรุปออเดอร์: ใช้เทมเพลตจักร คำผู้ชาย มีเลขบัญชีจาก PAYMENT_INFO · ไม่มีเลขบัญชี → บอกว่าแอดมินจะส่งให้", () => {
+  const o = priceOrder(sampleSets(), { code: "XR-AB12", product: "อะคริลิค", picks: PICKS, tax: true })!;
+  const text = orderSummaryText(o, "🏦 KTB : 000-0-00000-0", true);
+  assert.match(text, /ออเดอร์ XR-AB12/);
+  assert.match(text, /กรอบป้ายอะคริลิค: สีดำ มีเส้นขอบ \/ สั้น-ยาว \/ มีเส้นกลาง  419\.-/);
+  assert.match(text, /ค่าส่ง SPX: ฟรี/);
+  assert.match(text, /ยอดชำระ 488\.-/);
+  assert.match(text, /KTB/);
+  assert.doesNotMatch(text, /ค่ะ|นะคะ/);
+  assert.match(orderSummaryText(o, "", true), /แอดมินส่งเลขบัญชีให้/);
+});
+
+test("ตรวจแบบฟอร์มที่อยู่", () => {
+  assert.equal(validateAddress({ name: "สมชาย ใจดี", phone: "081-234-5678", address: "99/1 ถ.สุขุมวิท บางนา กรุงเทพฯ", zip: "10260" }).ok, true);
+  assert.match((validateAddress({ name: "สมชาย", phone: "12345", address: "99/1 ถ.สุขุมวิท บางนา", zip: "10260" }) as any).error, /เบอร์โทร/);
+  assert.match((validateAddress({ name: "สมชาย", phone: "0812345678", address: "สั้น", zip: "10260" }) as any).error, /ที่อยู่/);
+  assert.match((validateAddress({ name: "สมชาย", phone: "0812345678", address: "99/1 ถ.สุขุมวิท บางนา", zip: "102" }) as any).error, /รหัสไปรษณีย์/);
+});
+
+const postbackEvent = (data: string, userId = "U1") => ({ type: "postback", source: { type: "user", userId }, replyToken: "rt", postback: { data } }) as any;
+
+test("กดการ์ดขั้นสุดท้าย → ชวนเพิ่มป้ายภาษี (ไม่ต้องรอ AI)", async () => {
+  const { line, sent } = fakeLine();
+  const sets = sampleSets();
+  let asked = false;
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[2], sets[2].items[0], ["สีดำ มีเส้นขอบ", "สั้น-ยาว"]) }), {
+    line, getFaq: async () => "faq", getImageSets: async () => sets, ask: async () => { asked = true; return { reply: "", needsAdmin: false, adminNote: "" }; },
+  });
+  assert.equal(asked, false);
+  const msg = sent[0].texts[0];
+  assert.match(msg.text, /เพิ่มกรอบป้ายภาษี/);
+  assert.equal(msg.quickReply.items.length, 2);
+  const yes = decodePostback(msg.quickReply.items[0].action.data)!;
+  assert.deepEqual(yes, { k: "tax", y: 1, p: "อะคริลิค", s: PICKS });
+});
+
+test("กด 'เพิ่มป้ายภาษี' → สรุปยอด + ปุ่มกรอกที่อยู่ (ลิงก์ LIFF พร้อมออเดอร์ที่เซ็นแล้ว)", async () => {
+  const { line, sent } = fakeLine();
+  await handleEvent(postbackEvent(JSON.stringify({ k: "tax", y: 1, p: "อะคริลิค", s: PICKS })), {
+    line, getImageSets: async () => sampleSets(), liffId: "1234-abcd", paymentInfo: "🏦 KTB : 000", orderSecret: "secret", adminUserId: "UADMIN",
+  });
+  const [summary, button] = sent[0].texts;
+  assert.match(summary, /ยอดชำระ 488\.-/);
+  const uri = button.contents.body.contents[2].action.uri as string;
+  assert.match(uri, /^https:\/\/liff\.line\.me\/1234-abcd\?o=/);
+  const order = verifyOrder(decodeURIComponent(uri.split("?o=")[1]), "secret")!;
+  assert.equal(order.total, 488);
+  assert.equal(sent.length, 1); // มีเลขบัญชีแล้ว ไม่ต้องรบกวนแอดมิน
+});
+
+test("ปุ่มแอดมิน: แอดมินกด ✅ → แจ้งลูกค้า · คนอื่นกด → ไม่มีผล", async () => {
+  const data = JSON.stringify({ k: "adm", a: "ok", c: "XR-AB12", u: "UCUST", t: 488 });
+  const a = fakeLine();
+  await handleEvent(postbackEvent(data, "UADMIN"), { line: a.line, adminUserId: "UADMIN" });
+  assert.equal(a.sent[0].to, "UCUST");
+  assert.match(a.sent[0].texts[0], /ได้รับยอดชำระ 488\.- แล้วครับ ✅ ออเดอร์ XR-AB12/);
+  assert.match(a.sent[1].texts[0], /ยืนยันออเดอร์ XR-AB12 แล้ว/);
+  const b = fakeLine();
+  await handleEvent(postbackEvent(data, "UHACKER"), { line: b.line, adminUserId: "UADMIN" });
+  assert.equal(b.sent.length, 0);
+});
+
+test("ลูกค้าส่งแบบฟอร์มแล้ว (ข้อความจากแบบฟอร์ม) → บอทยืนยันทันที ไม่เรียก AI", async () => {
+  const { line, sent } = fakeLine();
+  await handleEvent(msgEvent({ type: "text", text: addressSentText("XR-AB12", 488) }), { line, ask: async () => { throw new Error("ไม่ควรเรียก"); } });
+  assert.match(sent[0].texts[0], /รับที่อยู่จัดส่งแล้วครับ ✅ ออเดอร์ XR-AB12\nโอนยอด 488\.-/);
+});
+
+test("Gemini ชนโควตา/ขัดข้องชั่วคราว → ลองใหม่ 1 ครั้ง", async () => {
+  assert.equal(isRetryable('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}'), true);
+  assert.equal(isRetryable("503 UNAVAILABLE"), true);
+  assert.equal(isRetryable("404 NOT_FOUND model"), false);
+  let calls = 0;
+  const flaky = (async () => {
+    calls++;
+    if (calls === 1) throw new Error('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}');
+    return { text: '{"reply":"ได้ครับ","needs_admin":false,"admin_note":"","show_set":""}', candidates: [{ finishReason: FinishReason.STOP }], usageMetadata: {} };
+  }) as any;
+  const a = await askGemini("faq", [], "สวัสดี", "now", { generate: flaky });
+  assert.equal(calls, 2);
+  assert.equal(a.reply, "ได้ครับ");
 });
