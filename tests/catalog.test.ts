@@ -288,7 +288,8 @@ test("รูปลบพื้นหลัง: ใช้เมื่อรูป
   const { readFileSync, existsSync } = await import("node:fs");
   const { CLEAN_PHOTOS } = await import("../lib/clean-photos.ts");
   const ids = Object.keys(CLEAN_PHOTOS);
-  assert.equal(ids.length, 46);
+  assert.equal(ids.length, 42); // เฉพาะอะคริลิค (จักรเลือก 30 ต.ค.)
+  assert.equal(cleanPhotoPath("1kJz6WBKwBsgpl9HWVEl8ensMB-0XizEv", Buffer.from("x")), null); // สแตนเลสขอบเล็ก กลับเป็นต้นฉบับ
   // ทุกรายการมีไฟล์รูปจริง และเป็นรูปที่การ์ดใช้อยู่
   const used = JSON.stringify(sampleSets());
   assert.ok(ids.every((id) => existsSync(`public/products/${id}.jpg`) && used.includes(id)));
