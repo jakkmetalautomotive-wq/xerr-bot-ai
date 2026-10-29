@@ -4,7 +4,10 @@ import { buildSystemPrompt, wrapQuestion } from "./prompt.ts";
 import { DEFAULT_REPLY } from "./shop.ts";
 
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-const TIMEOUT_MS = 20_000; // webhook ตอบ LINE ทันทีแล้ว (waitUntil) — รอ Gemini ได้นานขึ้น ถ้า reply token หมดอายุจะส่งแบบ push แทน
+// รุ่นสำรอง: ใช้ตอนรุ่นหลักคนใช้เยอะจนล่ม (503 high demand / 504) · เปลี่ยนได้ด้วย GEMINI_FALLBACK_MODEL ("off" = ไม่ใช้)
+export const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL === "off" ? "" : process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash";
+const TIMEOUT_MS = 15_000; // ต่อครั้ง · webhook ตอบ LINE ทันทีแล้ว (waitUntil) ถ้า reply token หมดอายุจะส่งแบบ push แทน
+const BUDGET_MS = 48_000; // รวมทุกครั้งที่ลอง ต้องจบก่อน maxDuration ของ webhook (60 วิ)
 // ระดับการคิด: LOW เร็วพอสำหรับตอบแชท (เปลี่ยนได้ด้วย GEMINI_THINKING = MINIMAL / LOW / MEDIUM / HIGH)
 export const THINKING = (Object.values(ThinkingLevel) as string[]).includes(process.env.GEMINI_THINKING ?? "") ? (process.env.GEMINI_THINKING as ThinkingLevel) : ThinkingLevel.LOW;
 
@@ -35,34 +38,52 @@ export async function askGemini(
   history: Content[],
   question: string,
   clockLabel: string,
-  { generate = defaultGenerate(), model = MODEL, imageSets = [] }: { generate?: GenerateFn; model?: string; imageSets?: string[] } = {},
+  {
+    generate = defaultGenerate(),
+    model = MODEL,
+    fallbackModel = FALLBACK_MODEL,
+    imageSets = [],
+    wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+  }: { generate?: GenerateFn; model?: string; fallbackModel?: string; imageSets?: string[]; wait?: (ms: number) => Promise<void> } = {},
 ): Promise<BotAnswer> {
-  const call = () => generate({
-    model,
+  const t0 = Date.now();
+  const call = (m: string) => generate({
+    model: m,
     contents: [...history, { role: "user", parts: [{ text: wrapQuestion(question) }] }],
     config: {
       systemInstruction: buildSystemPrompt(faq, clockLabel, imageSets),
       temperature: 1.0, // ค่าเริ่มต้นของ Gemini 3.x — อย่าลด
       maxOutputTokens: 1024, // รวม thinking + คำตอบ
-      thinkingConfig: { thinkingLevel: THINKING },
+      // thinkingLevel ใช้ได้กับ Gemini 3 ขึ้นไป · รุ่นเก่า (สำรอง) ใช้ค่าเริ่มต้นของรุ่นนั้น
+      ...(/^gemini-[3-9]/.test(m) ? { thinkingConfig: { thinkingLevel: THINKING } } : {}),
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
-      httpOptions: { timeout: TIMEOUT_MS },
+      httpOptions: { timeout: Math.max(5_000, Math.min(TIMEOUT_MS, BUDGET_MS - (Date.now() - t0))) },
     },
   });
 
-  // ชนโควตา (429) / Google ขัดข้องชั่วคราว (5xx) แล้วล้มเร็ว → รอแป๊บแล้วลองใหม่ 1 ครั้ง
-  const t0 = Date.now();
+  // Google คนใช้เยอะ (503) / ตอบไม่ทัน (504) / ชนโควตา (429) → ลองรุ่นสำรอง แล้วกลับมาลองรุ่นหลักอีกครั้ง ภายในเวลาที่เหลือ
+  // error อื่นของรุ่นหลัก (คีย์ผิด ชื่อรุ่นผิด) → หยุดเลย · รุ่นสำรองพังด้วยเหตุอะไรก็ข้ามไปลองต่อ
+  const plan = [model, ...(fallbackModel && fallbackModel !== model ? [fallbackModel] : []), model];
   let res;
-  try {
-    res = await call();
-  } catch (err) {
-    const msg = String((err as Error)?.message ?? err);
-    console.warn(`[gemini] error: ${msg.slice(0, 300)}`);
-    if (!isRetryable(msg) || Date.now() - t0 > 8_000) throw err;
-    await new Promise((r) => setTimeout(r, 1_500));
-    res = await call();
+  let lastErr: unknown;
+  for (const [i, m] of plan.entries()) {
+    if (i > 0) {
+      if (BUDGET_MS - (Date.now() - t0) < 8_000) break; // เหลือเวลาไม่พอลองอีกครั้ง
+      await wait(1_000);
+    }
+    try {
+      res = await call(m);
+      if (i > 0) console.log(`[gemini] สำเร็จรอบที่ ${i + 1} ด้วย ${m}`);
+      break;
+    } catch (err) {
+      lastErr = err;
+      const msg = String((err as Error)?.message ?? err);
+      console.warn(`[gemini] error (${m}): ${msg.slice(0, 300)}`);
+      if (m === model && !isRetryable(msg)) throw err;
+    }
   }
+  if (!res) throw lastErr;
 
   const finishReason = res.candidates?.[0]?.finishReason;
   const usage = res.usageMetadata;
@@ -78,7 +99,7 @@ export async function askGemini(
 }
 
 export function isRetryable(message: string): boolean {
-  return /\b(429|500|502|503|504)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|overloaded|INTERNAL|fetch failed|ECONNRESET/i.test(message);
+  return /\b(429|500|502|503|504)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE_EXCEEDED|high demand|overloaded|INTERNAL|fetch failed|ECONNRESET|timed? ?out|aborted/i.test(message);
 }
 
 export function parseAnswer(text: string | undefined, question: string): BotAnswer {

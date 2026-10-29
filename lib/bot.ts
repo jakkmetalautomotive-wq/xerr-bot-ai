@@ -141,6 +141,8 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   if (!set && !answer.needsAdmin && choice) set = nextStepSet(sets, choice.set, choice.picked);
   // ปุ่มของการ์ดชุดถัดไปพกตัวเลือกที่เลือกมาแล้ว → บอทรู้ครบแม้หน่วยความจำหาย
   if (set?.items.length) out = withSet(out, set, choice && set !== choice.set && choice.set.name !== CATEGORY_SET ? choice.picked : []);
+  // AI ล่มทุกครั้งที่ลอง → แนบปุ่มเมนูให้ลูกค้าดูราคา/สั่งซื้อ/วิธีติดตั้ง/รีวิว ต่อเองได้ (ปุ่มพวกนี้ตอบด้วยโค้ด ไม่ต้องใช้ AI)
+  if (answer.reply === ERROR_REPLY) out = withMenuButtons(out);
   await send(deps, replyToken, userId, out);
   if (answer.reply !== ERROR_REPLY) addTurn(userId, question, set ? `${answer.reply}\n[ส่งการ์ดรูปชุด "${set.name}" ให้ลูกค้าเลือกแล้ว]` : answer.reply);
   if (answer.needsAdmin) await notifyAdmin(deps, userId, answer.adminNote || (answer.reply === DEFAULT_REPLY ? `คำถามที่ไม่มีใน FAQ: ${question}` : question));
@@ -203,6 +205,13 @@ async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: strin
 }
 
 // ส่งชุดตัวเลือก: มีรูป → การ์ดปัดดู · ไม่มีรูป → ปุ่มด่วนติดข้อความสุดท้าย (ปุ่มด่วนแสดงเฉพาะใต้ข้อความล่าสุด)
+function withMenuButtons(out: OutMessage[]): OutMessage[] {
+  const last = out[out.length - 1];
+  if (typeof last !== "string") return out;
+  const items = [MENU.order, MENU.price, MENU.install, MENU.review].map((t) => ({ type: "action", action: { type: "message", label: t, text: t } }));
+  return [...out.slice(0, -1), { type: "text", text: last, quickReply: { items } }];
+}
+
 function withSet(out: OutMessage[], set: ImageSet, picked: string[]): OutMessage[] {
   if (!isQuickSet(set)) return [...out, buildCarousel(set, picked)];
   const i = out.findLastIndex((m) => typeof m === "string");

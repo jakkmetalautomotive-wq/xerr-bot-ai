@@ -6,7 +6,7 @@ import { parseCsv, csvToFaqText, getFaq, sheetUrls, _resetSheetCache } from "../
 import { buildSystemPrompt, wrapQuestion } from "../lib/prompt.ts";
 import { askGemini, parseAnswer } from "../lib/gemini.ts";
 import { handleEvent, type LinePort, type OutMessage } from "../lib/bot.ts";
-import { adminNotice, DEFAULT_REPLY, ERROR_REPLY } from "../lib/shop.ts";
+import { adminNotice, DEFAULT_REPLY, ERROR_REPLY, MENU } from "../lib/shop.ts";
 
 // ---------- Sheet ----------
 test("อ่าน CSV ที่มี comma / ขึ้นบรรทัด / เครื่องหมายคำพูด ในช่อง", () => {
@@ -407,17 +407,65 @@ test("ลูกค้าส่งแบบฟอร์มแล้ว (ข้อ
   assert.match(sent[0].texts[0], /รับที่อยู่จัดส่งแล้วครับ ✅ ออเดอร์ XR-AB12\nโอนยอด 488\.-/);
 });
 
-test("Gemini ชนโควตา/ขัดข้องชั่วคราว → ลองใหม่ 1 ครั้ง", async () => {
-  assert.equal(isRetryable('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}'), true);
-  assert.equal(isRetryable("503 UNAVAILABLE"), true);
-  assert.equal(isRetryable("404 NOT_FOUND model"), false);
-  let calls = 0;
-  const flaky = (async () => {
-    calls++;
-    if (calls === 1) throw new Error('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}');
-    return { text: '{"reply":"ได้ครับ","needs_admin":false,"admin_note":"","show_set":""}', candidates: [{ finishReason: FinishReason.STOP }], usageMetadata: {} };
+const OK_RES = { text: '{"reply":"ได้ครับ","needs_admin":false,"admin_note":"","show_set":""}', candidates: [{ finishReason: FinishReason.STOP }], usageMetadata: {} };
+const noWait = async () => {};
+// generate ปลอม: ตอบตามลำดับที่กำหนด (Error = โยน) และจดว่าเรียกรุ่นไหน ด้วย config อะไร
+function scripted(...steps: (Error | "ok")[]) {
+  const calls: { model: string; config: any }[] = [];
+  const fn = (async (p: any) => {
+    calls.push({ model: p.model, config: p.config });
+    const s = steps[calls.length - 1];
+    if (s instanceof Error) throw s;
+    return OK_RES;
   }) as any;
-  const a = await askGemini("faq", [], "สวัสดี", "now", { generate: flaky });
-  assert.equal(calls, 2);
+  return { fn, calls };
+}
+const HIGH_DEMAND = new Error('{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}');
+const DEADLINE = new Error('{"error":{"code":504,"message":"Deadline expired before operation could complete.","status":"DEADLINE_EXCEEDED"}}');
+
+test("Gemini ชนโควตา/ขัดข้องชั่วคราว → ลองใหม่ได้ · error อื่นไม่ลองซ้ำ", () => {
+  assert.equal(isRetryable('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}'), true);
+  assert.equal(isRetryable(HIGH_DEMAND.message), true);
+  assert.equal(isRetryable(DEADLINE.message), true);
+  assert.equal(isRetryable("404 NOT_FOUND model"), false);
+  assert.equal(isRetryable("API key not valid"), false);
+});
+
+test("รุ่นหลักล่ม 503 (เหตุการณ์จริง 29 ต.ค. 21:02) → ลองรุ่นสำรอง (ไม่ส่ง thinkingLevel ให้รุ่นเก่า) แล้วตอบได้", async () => {
+  const g = scripted(HIGH_DEMAND, "ok");
+  const a = await askGemini("faq", [], "กรอบป้ายอะคริลิคกันน้ำไหม", "now", { generate: g.fn, model: "gemini-3.5-flash", fallbackModel: "gemini-2.5-flash", wait: noWait });
   assert.equal(a.reply, "ได้ครับ");
+  assert.deepEqual(g.calls.map((c) => c.model), ["gemini-3.5-flash", "gemini-2.5-flash"]);
+  assert.ok(g.calls[0].config.thinkingConfig);
+  assert.equal(g.calls[1].config.thinkingConfig, undefined);
+});
+
+test("504 ทั้งรุ่นหลักและรุ่นสำรอง → กลับไปลองรุ่นหลักอีกครั้ง · รุ่นสำรองชื่อผิด (404) ก็ข้ามไปลองต่อ", async () => {
+  const a = scripted(DEADLINE, DEADLINE, "ok");
+  assert.equal((await askGemini("faq", [], "q", "now", { generate: a.fn, model: "gemini-3.5-flash", fallbackModel: "gemini-2.5-flash", wait: noWait })).reply, "ได้ครับ");
+  assert.deepEqual(a.calls.map((c) => c.model), ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.5-flash"]);
+  const b = scripted(HIGH_DEMAND, new Error("404 NOT_FOUND models/gemini-x"), "ok");
+  assert.equal((await askGemini("faq", [], "q", "now", { generate: b.fn, model: "gemini-3.5-flash", fallbackModel: "gemini-x", wait: noWait })).reply, "ได้ครับ");
+  assert.equal(b.calls.length, 3);
+});
+
+test("รุ่นหลัก error ที่ลองซ้ำไม่ช่วย (คีย์ผิด) → หยุดทันที · ล่มครบทุกรอบ → โยน error เดิม", async () => {
+  const a = scripted(new Error("API key not valid"));
+  await assert.rejects(askGemini("faq", [], "q", "now", { generate: a.fn, wait: noWait }), /API key not valid/);
+  assert.equal(a.calls.length, 1);
+  const b = scripted(HIGH_DEMAND, HIGH_DEMAND, HIGH_DEMAND);
+  await assert.rejects(askGemini("faq", [], "q", "now", { generate: b.fn, model: "gemini-3.5-flash", fallbackModel: "gemini-2.5-flash", wait: noWait }), /high demand/);
+  assert.equal(b.calls.length, 3);
+});
+
+test("AI ล่มจนตอบไม่ได้ → ข้อความขอโทษ + ปุ่มเมนู สั่งซื้อ/ราคา/วิธีติดตั้ง/รีวิว ที่ข้อความสุดท้าย + แจ้งแอดมิน", async () => {
+  const { line, sent } = fakeLine();
+  await handleEvent(msgEvent({ type: "text", text: "กรอบป้ายอะคริลิคกันน้ำไหม" }), {
+    line, adminUserId: "UADMIN", getFaq: async () => "faq", getImageSets: async () => sampleSets(), ask: async () => { throw HIGH_DEMAND; },
+  });
+  const texts = sent[0].texts;
+  assert.match(texts[0], /ขัดข้องชั่วคราว/);
+  const last = texts[texts.length - 1];
+  assert.deepEqual(last.quickReply.items.map((i: any) => i.action.text), [MENU.order, MENU.price, MENU.install, MENU.review]);
+  assert.equal(sent[1].to, "UADMIN");
 });

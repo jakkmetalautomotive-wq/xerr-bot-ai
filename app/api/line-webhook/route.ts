@@ -6,7 +6,7 @@ import { line, paymentInfo } from "@/lib/line.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60; // รอ Gemini ลองซ้ำ + รุ่นสำรองได้ (lib/gemini.ts BUDGET_MS 48 วิ)
 
 export async function POST(req: Request) {
   const body = await req.text();

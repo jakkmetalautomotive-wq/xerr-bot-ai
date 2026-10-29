@@ -48,7 +48,8 @@ export async function GET(req: Request) {
           // ถามจริงด้วย FAQ + prompt เต็ม เหมือนลูกค้าทัก
           const sets = (await getImageSets()).map((s) => s.name);
           const q = params.get("q")?.slice(0, 200) || "กรอบป้าย ABS ราคาเท่าไหร่ครับ";
-          const answer = await askGemini(await getFaq(), [], q, bangkokClock().label, { model, imageSets: sets });
+          // ไม่ใช้รุ่นสำรอง → ผลที่ได้คือของรุ่นที่ขอเช็คจริง ๆ
+          const answer = await askGemini(await getFaq(), [], q, bangkokClock().label, { model, fallbackModel: "", imageSets: sets });
           result = { ok: true, ms: Date.now() - t0, thinking: THINKING, answer };
         } else {
           const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
