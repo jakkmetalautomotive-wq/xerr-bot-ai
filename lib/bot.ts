@@ -5,7 +5,7 @@ import { askGemini, type BotAnswer } from "./gemini.ts";
 import { getHistory, addTurn } from "./history.ts";
 import {
   getImageSets, findSet, buildCarousel, buildQuickReply, parseChoice, nextStepSet, firstStepSet, stepOf, stepTitle, isQuickSet,
-  CATEGORY_SET, INSTALL_SET, type FlexOut, type ImageSet,
+  CATEGORY_SET, INSTALL_SET, REVIEW_SET, type FlexOut, type ImageSet,
 } from "./images.ts";
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, adminNotice, bangkokClock } from "./shop.ts";
 import {
@@ -88,10 +88,16 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     addTurn(userId, question, text);
     return;
   }
-  const install = sets.find((s) => s.name === INSTALL_SET);
-  if (question.trim() === MENU.install && install) {
-    await send(deps, replyToken, userId, ["เลือกรุ่นที่ต้องการดูวิธีติดตั้งได้เลยครับ 😊 กดปุ่มใต้การ์ดเพื่อเปิดคลิปใน YouTube", buildCarousel(install)]);
-    addTurn(userId, question, `[ส่งการ์ด "${INSTALL_SET}" ให้ลูกค้าแล้ว]`);
+  // ปุ่มเมนูที่ตอบด้วยการ์ดลิงก์ (กดแล้วเปิดคลิป / หน้ารีวิว)
+  const linkMenus: [text: string, setName: string, intro: string][] = [
+    [MENU.install, INSTALL_SET, "เลือกรุ่นที่ต้องการดูวิธีติดตั้งได้เลยครับ 😊 กดปุ่มใต้การ์ดเพื่อเปิดคลิปใน YouTube"],
+    [MENU.review, REVIEW_SET, "รีวิวจากลูกค้าจริงครับ 😊 กดปุ่มใต้การ์ดเพื่อดูรีวิวแต่ละรุ่นได้เลย"],
+  ];
+  for (const [text, setName, intro] of linkMenus) {
+    const linkSet = sets.find((s) => s.name === setName);
+    if (question.trim() !== text || !linkSet?.items.length) continue;
+    await send(deps, replyToken, userId, [intro, buildCarousel(linkSet)]);
+    addTurn(userId, question, `[ส่งการ์ด "${setName}" ให้ลูกค้าแล้ว]`);
     return;
   }
   if (question.trim() === MENU.admin) {

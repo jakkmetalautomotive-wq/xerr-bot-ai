@@ -2,9 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
-import { sampleSets, choiceText, CATEGORY_SET, buildQuickReply, isQuickSet, firstStepSet, parseImageSets, buildCarousel, parseInstallLinks, installSet } from "../lib/images.ts";
+import { sampleSets, choiceText, CATEGORY_SET, buildQuickReply, isQuickSet, firstStepSet, parseImageSets, buildCarousel, parseLinkColumn, installSet, reviewSet, REVIEW_SET } from "../lib/images.ts";
 import { priceOrder, decodePostback, orderSummaryText, verifyOrder } from "../lib/order.ts";
 import { MENU } from "../lib/shop.ts";
+import { richMenuRequest } from "../lib/richmenu.ts";
 
 function fakeLine() {
   const sent: { kind: string; to: string; texts: any[] }[] = [];
@@ -148,12 +149,12 @@ test("ปุ่มเมนู 🔧 วิธีติดตั้ง → กา
 
 test("ลิงก์คลิปอ่านจากคอลัมน์ คลิปวิธีติดตั้ง ในแท็บสินค้าและราคา · ไม่มีลิงก์ใช้ค่าสำรอง", () => {
   const csv = 'รหัส,สินค้า,คลิปวิธีติดตั้ง\nacrylic-ss,อะคริลิค,https://youtu.be/E93c_P1DghM\ntax-moto,ป้ายภาษี,"https://www.youtube.com/shorts/jlbwvEijfAQ "\nsteel,เหล็ก,-';
-  const links = parseInstallLinks(csv);
+  const links = parseLinkColumn(csv, "คลิปวิธีติดตั้ง");
   assert.deepEqual(links, { "acrylic-ss": "https://youtu.be/E93c_P1DghM", "tax-moto": "https://www.youtube.com/shorts/jlbwvEijfAQ" });
   const set = installSet(links);
   assert.equal(set.items[0].link, "https://youtu.be/E93c_P1DghM");
   assert.equal(set.items[2].link, "https://www.youtube.com/shorts/4T8q5ub69XM");
-  assert.deepEqual(parseInstallLinks("ชุดรูป,ชื่อแบบ\nx,y"), {});
+  assert.deepEqual(parseLinkColumn("ชุดรูป,ชื่อแบบ\nx,y", "คลิปวิธีติดตั้ง"), {});
 });
 
 test("แท็บรูปสินค้า: คอลัมน์ลิงก์คลิป → ปุ่ม YouTube · ไม่ใส่รูปใช้ภาพปกคลิป", () => {
@@ -161,4 +162,37 @@ test("แท็บรูปสินค้า: คอลัมน์ลิงก
   const [set] = parseImageSets(csv);
   assert.equal(set.items[0].image, "https://i.ytimg.com/vi/YbnSyMiTUYE/hqdefault.jpg");
   assert.equal((buildCarousel(set).contents as any).contents[0].footer.contents[0].action.uri, "https://www.youtube.com/watch?v=YbnSyMiTUYE");
+});
+
+test("ปุ่มเมนู ⭐ รีวิวสินค้า → การ์ดเฉพาะรุ่นที่มีลิงก์รีวิว ปุ่มเปิดหน้ารีวิว (ไม่เรียก AI)", async () => {
+  const { line, sent } = fakeLine();
+  await handleEvent(msgEvent(MENU.review), { line, getImageSets: async () => sampleSets(), ask: noAsk });
+  assert.match(sent[0].texts[0], /รีวิวจากลูกค้าจริง/);
+  const bubbles = sent[0].texts[1].contents.contents;
+  assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].text), ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "รถตู้/บรรทุก"]);
+  assert.deepEqual(bubbles.map((b: any) => b.footer.contents[0].action.uri), [
+    "https://canva.link/cm14wzc6vnbed6p", "https://canva.link/ve2f6ufpe1z3dx9", "https://canva.link/pny4wokozswx4dq",
+    "https://canva.link/2sz7a5wfwb41g3n", "https://canva.link/59ohj9ig99g7t1w",
+  ]);
+  assert.ok(bubbles.every((b: any) => b.footer.contents[0].action.label === "⭐ ดูรีวิว" && /\/samples\/cat-.+\.png$/.test(b.hero.url)));
+});
+
+test("ลิงก์รีวิวจากคอลัมน์ ลิงก์รีวิว ในชีท: แทนลิงก์สำรอง + เพิ่มการ์ดรุ่นใหม่ได้", () => {
+  const csv = "รหัส,ลิงก์รีวิว\nabs,https://canva.link/abs-new\ntax-car,https://canva.link/tax";
+  const set = reviewSet(parseLinkColumn(csv, "ลิงก์รีวิว"));
+  assert.equal(set.name, REVIEW_SET);
+  assert.equal(set.items.find((i) => i.name === "พลาสติก ABS")!.link, "https://canva.link/abs-new");
+  assert.equal(set.items.find((i) => i.name === "ป้ายภาษี พรบ. รถยนต์")!.link, "https://canva.link/tax");
+  assert.equal(set.items.length, 6);
+});
+
+test("Rich Menu 2 แถว × 3 ช่อง: 5 ปุ่มตรงตำแหน่ง · ช่องที่ 6 ว่าง · พื้นที่กดไม่เกินขอบรูป", () => {
+  const req = richMenuRequest() as any;
+  assert.deepEqual(req.size, { width: 2500, height: 1686 });
+  const areas = req.areas.map((a: any) => [(a.action as any).text, a.bounds.x, a.bounds.y, a.bounds.width, a.bounds.height]);
+  assert.deepEqual(areas, [
+    [MENU.order, 0, 0, 833, 843], [MENU.price, 833, 0, 834, 843], [MENU.install, 1667, 0, 833, 843],
+    [MENU.review, 0, 843, 833, 843], [MENU.admin, 833, 843, 834, 843],
+  ]);
+  assert.ok(req.areas.every((a: any) => (a.action as any).label.length <= 20));
 });

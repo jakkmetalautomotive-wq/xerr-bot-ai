@@ -1,33 +1,16 @@
-// ติดตั้ง Rich Menu (เมนูด้านล่างแชท) 4 ปุ่ม: 🛒 สั่งซื้อ · 💰 ราคา · 🔧 วิธีติดตั้ง · 💬 คุยกับแอดมิน
+// ติดตั้ง Rich Menu (เมนูด้านล่างแชท) — เลย์เอาต์ปุ่มอยู่ใน lib/richmenu.ts
 // /api/richmenu?key=HEALTH_KEY          → ดูว่าตอนนี้ตั้งเมนูไหนไว้
 // /api/richmenu?key=HEALTH_KEY&apply=1  → สร้างเมนูใหม่ (รูป public/richmenu.png) ตั้งเป็นเมนูหลัก แล้วลบเมนูชื่อเดียวกันที่สร้างไว้ก่อนหน้า
 // ใช้ LINE_CHANNEL_ACCESS_TOKEN ใน Vercel — ไม่แสดงคีย์ใด ๆ
 import { messagingApi } from "@line/bot-sdk";
-import { MENU } from "@/lib/shop.ts";
 import { baseUrl } from "@/lib/images.ts";
+import { RICH_MENU_NAME as NAME, richMenuRequest } from "@/lib/richmenu.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const NAME = "XERR เมนูหลัก";
-const W = 2500, H = 843; // ขนาดรูป public/richmenu.png
 const errMsg = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 500);
-
-function richMenuRequest(): messagingApi.RichMenuRequest {
-  const texts = [MENU.order, MENU.price, MENU.install, MENU.admin];
-  const cell = W / texts.length;
-  return {
-    size: { width: W, height: H },
-    selected: true, // เปิดเมนูค้างไว้ตอนลูกค้าเข้าแชท
-    name: NAME,
-    chatBarText: "เมนู",
-    areas: texts.map((text, i) => ({
-      bounds: { x: Math.round(i * cell), y: 0, width: Math.round(cell), height: H },
-      action: { type: "message", label: text, text },
-    })),
-  };
-}
 
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;

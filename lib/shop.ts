@@ -46,5 +46,6 @@ export const MENU = {
   order: "🛒 สั่งซื้อ",
   price: "💰 ราคา",
   install: "🔧 วิธีติดตั้ง",
+  review: "⭐ รีวิวสินค้า",
   admin: "💬 คุยกับแอดมิน",
 };

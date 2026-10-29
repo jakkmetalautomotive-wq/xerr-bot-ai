@@ -24,6 +24,11 @@ export const CATEGORY_SET = "เลือกประเภทสินค้า
 // ชุดการ์ดวิธีติดตั้ง (ปุ่มเมนู 🔧) · แบบที่มีลิงก์คลิป → ปุ่มเปิด YouTube · ไม่ใส่รูป = ใช้ภาพปกคลิปเอง
 export const INSTALL_SET = "วิธีติดตั้ง";
 const INSTALL_BUTTON = "▶ ดูคลิปวิธีติดตั้ง";
+// ชุดการ์ดรีวิว (ปุ่มเมนู ⭐) · ทุกแบบมีลิงก์ → ปุ่มเปิดหน้ารีวิว
+export const REVIEW_SET = "รีวิวสินค้า";
+const REVIEW_BUTTON = "⭐ ดูรีวิว";
+// ชุดที่ทุกการ์ดเป็นลิงก์ออกไปข้างนอก (ไม่ใช่การเลือกแบบ)
+const LINK_SETS = [INSTALL_SET, REVIEW_SET];
 
 // ลิงก์ YouTube (watch / youtu.be / shorts) → ภาพปกคลิป
 export function youtubeThumb(url: string): string {
@@ -31,37 +36,48 @@ export function youtubeThumb(url: string): string {
   return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : "";
 }
 
-// การ์ดวิธีติดตั้ง ↔ แถวในแท็บ "สินค้าและราคา" (คอลัมน์ รหัส) · ลิงก์คลิปอ่านจากคอลัมน์ "คลิปวิธีติดตั้ง" ของแถวนั้น
-// ลิงก์สำรองด้านล่าง = ค่าในชีท ณ 29 ต.ค. 2026 (ใช้ตอนอ่านชีทไม่ได้)
+// การ์ดวิธีติดตั้ง / รีวิว ↔ แถวในแท็บ "สินค้าและราคา" (คอลัมน์ รหัส)
+// ลิงก์อ่านจากคอลัมน์ "คลิปวิธีติดตั้ง" / "ลิงก์รีวิว" ของแถวนั้น · ลิงก์สำรองด้านล่างใช้ตอนชีทไม่มีลิงก์ (ค่า ณ 29 ต.ค. 2026)
 export const PRODUCT_TAB = "สินค้าและราคา";
-const INSTALL_ROWS: [code: string, name: string, detail: string, fallback: string][] = [
-  ["acrylic-ss", "อะคริลิค", "ต้องลอกฟิล์มกันรอยสีน้ำตาลก่อนติดตั้ง", "https://www.youtube.com/shorts/TAfBgMMPaLo"],
-  ["stainless", "สแตนเลส", "ทั้งแบบมีและไม่มีแผ่นอะคริลิคใส", "https://www.youtube.com/shorts/gPLZ3Q1U3cM"],
-  ["steel", "เหล็กพ่นสี", "ทั้งแบบมีและไม่มีแผ่นอะคริลิคใส", "https://www.youtube.com/shorts/4T8q5ub69XM"],
-  ["abs", "พลาสติก ABS", "ใส่ไม่ลงให้กดไล่จากล่างขึ้นบน", "https://www.youtube.com/shorts/YbnSyMiTUYE"],
-  ["borderless", "ไร้ขอบ", "กาว 3M เทปแดง ไม่ต้องตัดป้าย", "https://www.youtube.com/shorts/9_rTKGa4n7U"],
-  ["truck", "รถตู้/บรรทุก", "ป้ายทะเบียน 30 · 45 × 24 ซม.", "https://www.youtube.com/shorts/0ImfgQxLS_M"],
-  ["tax-car", "ป้ายภาษี พรบ. รถยนต์", "เทปกาวเหนียว ไม่ทิ้งคราบ", "https://www.youtube.com/shorts/r7i0wnkWZmk"],
-  ["tax-moto", "ป้ายภาษี พรบ. มอเตอร์ไซค์", "ใช้ซ้ำได้ ลอกกาวเปลี่ยนใหม่", "https://www.youtube.com/shorts/jlbwvEijfAQ"],
+export const CLIP_COLUMN = "คลิปวิธีติดตั้ง";
+export const REVIEW_COLUMN = "ลิงก์รีวิว";
+const PRODUCT_ROWS: { code: string; name: string; image: string; install: string; clip: string; review?: string }[] = [
+  { code: "acrylic-ss", name: "อะคริลิค", image: "cat-acrylic.png", install: "ต้องลอกฟิล์มกันรอยสีน้ำตาลก่อนติดตั้ง", clip: "https://www.youtube.com/shorts/TAfBgMMPaLo", review: "https://canva.link/cm14wzc6vnbed6p" },
+  { code: "stainless", name: "สแตนเลส", image: "cat-stainless.png", install: "ทั้งแบบมีและไม่มีแผ่นอะคริลิคใส", clip: "https://www.youtube.com/shorts/gPLZ3Q1U3cM", review: "https://canva.link/ve2f6ufpe1z3dx9" },
+  { code: "steel", name: "เหล็กพ่นสี", image: "cat-steel.png", install: "ทั้งแบบมีและไม่มีแผ่นอะคริลิคใส", clip: "https://www.youtube.com/shorts/4T8q5ub69XM", review: "https://canva.link/pny4wokozswx4dq" },
+  { code: "abs", name: "พลาสติก ABS", image: "cat-abs.png", install: "ใส่ไม่ลงให้กดไล่จากล่างขึ้นบน", clip: "https://www.youtube.com/shorts/YbnSyMiTUYE", review: "https://canva.link/2sz7a5wfwb41g3n" },
+  { code: "borderless", name: "ไร้ขอบ", image: "cat-undercut.png", install: "กาว 3M เทปแดง ไม่ต้องตัดป้าย", clip: "https://www.youtube.com/shorts/9_rTKGa4n7U" },
+  { code: "truck", name: "รถตู้/บรรทุก", image: "cat-truck.png", install: "ป้ายทะเบียน 30 · 45 × 24 ซม.", clip: "https://www.youtube.com/shorts/0ImfgQxLS_M", review: "https://canva.link/59ohj9ig99g7t1w" },
+  { code: "tax-car", name: "ป้ายภาษี พรบ. รถยนต์", image: "cat-tax.png", install: "เทปกาวเหนียว ไม่ทิ้งคราบ", clip: "https://www.youtube.com/shorts/r7i0wnkWZmk" },
+  { code: "tax-moto", name: "ป้ายภาษี พรบ. มอเตอร์ไซค์", image: "cat-tax.png", install: "ใช้ซ้ำได้ ลอกกาวเปลี่ยนใหม่", clip: "https://www.youtube.com/shorts/jlbwvEijfAQ" },
 ];
 
-// แท็บสินค้าและราคา → { รหัส: ลิงก์คลิป }
-export function parseInstallLinks(csv: string): Record<string, string> {
+// แท็บสินค้าและราคา → { รหัส: ลิงก์ } ของคอลัมน์ที่ระบุ
+export function parseLinkColumn(csv: string, column: string): Record<string, string> {
   const [header, ...rows] = parseCsv(csv);
   const code = header?.findIndex((h) => h.trim() === "รหัส") ?? -1;
-  const clip = header?.findIndex((h) => h.trim() === "คลิปวิธีติดตั้ง") ?? -1;
-  if (code < 0 || clip < 0) return {};
-  return Object.fromEntries(rows.map((r) => [r[code]?.trim(), r[clip]?.trim()]).filter(([c, l]) => c && /^https:\/\//.test(l ?? "")));
+  const col = header?.findIndex((h) => h.trim() === column) ?? -1;
+  if (code < 0 || col < 0) return {};
+  return Object.fromEntries(rows.map((r) => [r[code]?.trim(), r[col]?.trim()]).filter(([c, l]) => c && /^https:\/\//.test(l ?? "")));
 }
 
 // แถวที่ชีทไม่มีลิงก์ https → ใช้ลิงก์สำรอง
 export function installSet(links: Record<string, string> = {}): ImageSet {
   return {
     name: INSTALL_SET,
-    items: INSTALL_ROWS.map(([code, name, detail, fallback], i) => {
-      const link = links[code] ?? fallback;
-      return { order: i + 1, name, price: "", image: youtubeThumb(link), detail, link };
+    items: PRODUCT_ROWS.map((p, i) => {
+      const link = links[p.code] ?? p.clip;
+      return { order: i + 1, name: p.name, price: "", image: youtubeThumb(link), detail: p.install, link };
     }),
+  };
+}
+
+// การ์ดรีวิว: เฉพาะรุ่นที่มีลิงก์รีวิว (ในชีทหรือลิงก์สำรอง) · รูป = รูปประเภทสินค้า
+export function reviewSet(links: Record<string, string> = {}): ImageSet {
+  const rows = PRODUCT_ROWS.map((p) => ({ ...p, link: links[p.code] ?? p.review })).filter((p) => p.link);
+  return {
+    name: REVIEW_SET,
+    items: rows.map((p, i) => ({ order: i + 1, name: p.name, price: "", image: `${baseUrl()}/samples/${p.image}`, detail: "รีวิวจากลูกค้าจริง", link: p.link! })),
   };
 }
 
@@ -134,6 +150,7 @@ export function sampleSets(): ImageSet[] {
     { name: "รถตู้/บรรทุก ขั้น 1 เลือกวัสดุ", items: items([["สแตนเลส", "", "", ""], ["เหล็กพ่นสีขาว", "", "", ""], ["เหล็กพ่นสีดำ", "", "", ""]]) },
     { name: "กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ", items: items([["รถยนต์", "69.-", "", "12 × 11 ซม."], ["มอเตอร์ไซค์", "129.-", "", "11.8 × 5.8 ซม."]]) },
     installSet(),
+    reviewSet(),
   ];
 }
 
@@ -228,7 +245,7 @@ let cache: { sets: ImageSet[]; at: number } | null = null;
 export async function getImageSets(now = Date.now()): Promise<ImageSet[]> {
   if (cache && now - cache.at < CACHE_MS) return cache.sets;
   let sets: ImageSet[] = [];
-  let links: Record<string, string> = {};
+  let productCsv = "";
   const sheetLink = (process.env.SHEET_CSV_URL ?? "").split(",").map((u) => u.trim()).find((u) => /docs\.google\.com\/spreadsheets\/d\//.test(u));
   if (sheetLink) {
     const [imageUrl, productUrl] = expandSheetUrl(sheetLink.replace(/[?#].*$/, ""), [IMAGE_TAB, PRODUCT_TAB]);
@@ -241,14 +258,18 @@ export async function getImageSets(now = Date.now()): Promise<ImageSet[]> {
         return "";
       }
     };
-    const [imageCsv, productCsv] = await Promise.all([read(imageUrl, "แท็บรูป"), read(productUrl, "ลิงก์คลิป")]);
+    let imageCsv: string;
+    [imageCsv, productCsv] = await Promise.all([read(imageUrl, "แท็บรูป"), read(productUrl, "ลิงก์คลิป/รีวิว")]);
     sets = parseImageSets(imageCsv);
-    links = parseInstallLinks(productCsv);
   }
-  // ชุดวิธีติดตั้ง: แท็บรูปไม่ได้ตั้งเอง → ใช้ชุดในโค้ด + ลิงก์คลิปจากแท็บสินค้าและราคา
-  const customInstall = sets.some((s) => s.name === INSTALL_SET);
+  // ชุดวิธีติดตั้ง / รีวิว: แท็บรูปไม่ได้ตั้งเอง → ใช้ชุดในโค้ด + ลิงก์จากแท็บสินค้าและราคา
+  const custom = new Set(sets.map((s) => s.name));
   if (!sets.length) sets = sampleSets();
-  if (!customInstall) sets = [...sets.filter((s) => s.name !== INSTALL_SET), installSet(links)];
+  const linkSets = [
+    installSet(parseLinkColumn(productCsv, CLIP_COLUMN)),
+    reviewSet(parseLinkColumn(productCsv, REVIEW_COLUMN)),
+  ].filter((s) => !custom.has(s.name));
+  sets = [...sets.filter((s) => !linkSets.some((l) => l.name === s.name)), ...linkSets];
   cache = { sets, at: now };
   return sets;
 }
@@ -285,8 +306,8 @@ export function buildCarousel(set: ImageSet, picked: string[] = []): FlexOut {
         ...(item.detail ? [{ type: "text", text: item.detail, size: "xs", color: "#666666", wrap: true }] : []),
       ],
     },
-    // ชุดวิธีติดตั้ง: แบบที่ไม่มีคลิป (ไร้ขอบ) อ่านขั้นตอนบนการ์ดได้เลย ไม่ต้องมีปุ่ม
-    ...(item.link || set.name !== INSTALL_SET
+    // ชุดลิงก์ (วิธีติดตั้ง / รีวิว): แบบที่ไม่มีลิงก์ อ่านรายละเอียดบนการ์ดได้เลย ไม่ต้องมีปุ่ม
+    ...(item.link || !LINK_SETS.includes(set.name)
       ? {
           footer: {
             type: "box",
@@ -298,7 +319,7 @@ export function buildCarousel(set: ImageSet, picked: string[] = []): FlexOut {
                 color: item.link ? "#D32F2F" : "#1F2937",
                 height: "sm",
                 action: item.link
-                  ? { type: "uri", label: INSTALL_BUTTON, uri: item.link }
+                  ? { type: "uri", label: set.name === REVIEW_SET ? REVIEW_BUTTON : INSTALL_BUTTON, uri: item.link }
                   : { type: "message", label: `เลือกแบบที่ ${item.order}`.slice(0, 20), text: choiceText(set, item, picked) },
               },
             ],
