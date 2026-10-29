@@ -3,7 +3,7 @@ import type { webhook } from "@line/bot-sdk";
 import { getFaq } from "./sheet.ts";
 import { askGemini, type BotAnswer } from "./gemini.ts";
 import { getHistory, addTurn } from "./history.ts";
-import { getImageSets, findSet, buildCarousel, type FlexOut, type ImageSet } from "./images.ts";
+import { getImageSets, findSet, buildCarousel, parseChoice, nextStepSet, type FlexOut, type ImageSet } from "./images.ts";
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, adminNotice, bangkokClock } from "./shop.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา หรือการ์ด (Flex)
@@ -62,8 +62,12 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   }
 
   const out: OutMessage[] = [answer.reply];
-  const set = answer.showSet ? findSet(sets, answer.showSet) : undefined;
-  if (set?.items.length) out.push(buildCarousel(set));
+  const choice = parseChoice(question, sets); // ลูกค้าเพิ่งกดปุ่มเลือกจากการ์ดไหม
+  let set = answer.showSet ? findSet(sets, answer.showSet) : undefined;
+  // กันพลาด: ลูกค้ากดเลือกขั้น N แต่ AI ลืมส่งขั้นถัดไป → ส่งให้เอง
+  if (!set && !answer.needsAdmin && choice) set = nextStepSet(sets, choice.set, choice.picked);
+  // ปุ่มของการ์ดชุดถัดไปพกตัวเลือกที่เลือกมาแล้ว → บอทรู้ครบแม้หน่วยความจำหาย
+  if (set?.items.length) out.push(buildCarousel(set, choice && set !== choice.set ? choice.picked : []));
   if (answer.needsAdmin) out.push(adminNotice());
   await send(deps, replyToken, userId, out);
   if (answer.reply !== ERROR_REPLY) addTurn(userId, question, set ? `${answer.reply}\n[ส่งการ์ดรูปชุด "${set.name}" ให้ลูกค้าเลือกแล้ว]` : answer.reply);

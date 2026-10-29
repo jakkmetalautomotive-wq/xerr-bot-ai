@@ -20,17 +20,73 @@ export function baseUrl(): string {
 export function sampleSets(): ImageSet[] {
   const img = (f: string) => `${baseUrl()}/samples/${f}`;
   const price = "สั้น-สั้น 399.- / สั้น-ยาว, ยาว-ยาว 419.-";
+  // ตั้งชื่อชุดเป็น "สินค้า ขั้น N ..." → บอทส่งทีละขั้นตามลำดับ
   return [
     {
-      name: "สีกรอบอะคริลิค",
+      name: "อะคริลิค ขั้น 1 เลือกสี",
       items: [
         { order: 1, name: "สีเรียบ ดำ", price, image: img("acrylic-black.png"), detail: "มีเส้นขอบ หรือ ไร้เส้นขอบ" },
         { order: 2, name: "สีเรียบ ขาว", price, image: img("acrylic-white.png"), detail: "มีเส้นขอบ หรือ ไร้เส้นขอบ" },
         { order: 3, name: "สีเรียบ เทา", price, image: img("acrylic-gray.png"), detail: "มีเส้นขอบ หรือ ไร้เส้นขอบ" },
-        { order: 4, name: "ลายเคฟล่า ดำ", price, image: img("acrylic-kevlar.png"), detail: "มีเส้นขอบเท่านั้น" },
+        { order: 4, name: "ลายเคฟล่า ดำ", price, image: img("acrylic-kevlar.png"), detail: "มีเส้นขอบเท่านั้น · ข้ามขั้นเลือกเส้นขอบ" },
+      ],
+    },
+    {
+      name: "อะคริลิค ขั้น 2 เลือกขนาด",
+      items: [
+        { order: 1, name: "สั้น-สั้น", price: "399.-", image: img("size-ss.png"), detail: "หน้าสั้น หลังสั้น · ตัวสั้น 39.5 × 16.2 ซม." },
+        { order: 2, name: "สั้น-ยาว", price: "419.-", image: img("size-sl.png"), detail: "หน้าสั้น หลังยาว (แนะนำ) · ตัวยาว 49.5 × 16.2 ซม." },
+        { order: 3, name: "ยาว-ยาว", price: "419.-", image: img("size-ll.png"), detail: "หน้ายาว หลังยาว · รถช่องป้ายหน้าเล็ก (เช่น Mazda 2) ใส่ไม่ได้" },
+      ],
+    },
+    {
+      name: "อะคริลิค ขั้น 3 เลือกเส้นขอบ",
+      items: [
+        { order: 1, name: "มีเส้นขอบ", price: "", image: img("border-yes.png"), detail: "ราคาเท่าเดิม" },
+        { order: 2, name: "ไร้เส้นขอบ", price: "", image: img("border-no.png"), detail: "ราคาเท่าเดิม" },
+      ],
+    },
+    {
+      name: "อะคริลิค ขั้น 4 เลือกเส้นกลาง",
+      items: [
+        { order: 1, name: "มีเส้นกลาง", price: "", image: img("center-yes.png"), detail: "ราคาเท่าเดิม" },
+        { order: 2, name: "ไม่มีเส้นกลาง", price: "", image: img("center-no.png"), detail: "ราคาเท่าเดิม" },
       ],
     },
   ];
+}
+
+// ข้อความจากปุ่ม "เลือกแบบที่ N: ชื่อแบบ (ชื่อชุด) | เลือกแล้ว: a, b" → ชุด + แบบ + ทุกแบบที่เลือกมา (รวมแบบนี้)
+export function parseChoice(text: string, sets: ImageSet[]): { set: ImageSet; item: ImageItem; picked: string[] } | null {
+  const m = text.trim().match(/^เลือกแบบที่\s*(\d+):\s*(.+?)\s+\(([^()]+)\)(?:\s*\|\s*เลือกแล้ว:\s*(.+))?$/);
+  if (!m) return null;
+  const set = sets.find((s) => s.name === m[3].trim());
+  const item = set?.items.find((i) => i.order === Number(m[1]));
+  if (!set || !item) return null;
+  const before = m[4] ? m[4].split(",").map((x) => x.trim()).filter(Boolean) : [];
+  return { set, item, picked: [...before, item.name] };
+}
+
+// ขั้นถัดไปของสินค้าเดียวกัน · แบบที่เลือกไว้มี "ข้ามขั้นXXX" ในรายละเอียด → ข้ามชุดที่ชื่อมี XXX
+export function nextStepSet(sets: ImageSet[], set: ImageSet, picked: string[]): ImageSet | undefined {
+  const cur = stepOf(set.name);
+  if (!cur) return undefined;
+  const sameProduct = sets
+    .map((s) => ({ s, st: stepOf(s.name) }))
+    .filter((x): x is { s: ImageSet; st: { product: string; step: number } } => x.st?.product === cur.product)
+    .sort((a, b) => a.st.step - b.st.step);
+  const skips = sameProduct
+    .flatMap((x) => x.s.items)
+    .filter((i) => picked.includes(i.name))
+    .map((i) => i.detail.match(/ข้ามขั้น\s*([^)·,|]+)/)?.[1].trim())
+    .filter((p): p is string => !!p);
+  return sameProduct.find((x) => x.st.step > cur.step && !skips.some((p) => x.s.name.includes(p)))?.s;
+}
+
+// ชุดที่อยู่ในขั้นตอนเดียวกัน: "อะคริลิค ขั้น 2 เลือกขนาด" → { product: "อะคริลิค", step: 2 }
+export function stepOf(setName: string): { product: string; step: number } | null {
+  const m = setName.match(/^(.*?)\s*ขั้น(?:ที่)?\s*(\d+)/);
+  return m ? { product: m[1].trim(), step: Number(m[2]) } : null;
 }
 
 // ลิงก์แชร์ Google Drive → id ของไฟล์
@@ -100,12 +156,13 @@ export function findSet(sets: ImageSet[], name: string): ImageSet | undefined {
   return sets.find((s) => s.name === n) ?? sets.find((s) => s.name.includes(n) || n.includes(s.name));
 }
 
-// ข้อความที่ลูกค้าส่งกลับเมื่อกดปุ่ม — มีชื่อชุด + ชื่อแบบ บอทจึงรู้ว่าเลือกอะไรแม้ลืมบทสนทนา
-export function choiceText(set: ImageSet, item: ImageItem): string {
-  return `เลือกแบบที่ ${item.order}: ${item.name} (${set.name})`;
+// ข้อความที่ลูกค้าส่งกลับเมื่อกดปุ่ม — มีชื่อชุด + ชื่อแบบ + ที่เลือกมาก่อน บอทจึงรู้ครบแม้ลืมบทสนทนา
+export function choiceText(set: ImageSet, item: ImageItem, picked: string[] = []): string {
+  const base = `เลือกแบบที่ ${item.order}: ${item.name} (${set.name})`;
+  return (picked.length ? `${base} | เลือกแล้ว: ${picked.join(", ")}` : base).slice(0, 300); // LINE จำกัด 300 ตัวอักษร
 }
 
-export function buildCarousel(set: ImageSet): FlexOut {
+export function buildCarousel(set: ImageSet, picked: string[] = []): FlexOut {
   const bubbles = set.items.map((item) => ({
     type: "bubble",
     size: "kilo",
@@ -130,7 +187,7 @@ export function buildCarousel(set: ImageSet): FlexOut {
           style: "primary",
           color: "#1F2937",
           height: "sm",
-          action: { type: "message", label: `เลือกแบบที่ ${item.order}`.slice(0, 20), text: choiceText(set, item) },
+          action: { type: "message", label: `เลือกแบบที่ ${item.order}`.slice(0, 20), text: choiceText(set, item, picked) },
         },
       ],
     },

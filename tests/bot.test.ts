@@ -212,8 +212,8 @@ test("การ์ดปัดดู: ใบละแบบ มีรูป http
 
 test("หาชุดรูปจากชื่อที่ AI ตอบ (ตรงหรือใกล้เคียง)", () => {
   const sets = sampleSets();
-  assert.equal(findSet(sets, "สีกรอบอะคริลิค")?.name, "สีกรอบอะคริลิค");
-  assert.equal(findSet(sets, "อะคริลิค")?.name, "สีกรอบอะคริลิค");
+  assert.equal(findSet(sets, "อะคริลิค ขั้น 1 เลือกสี")?.name, "อะคริลิค ขั้น 1 เลือกสี");
+  assert.equal(findSet(sets, "ขั้น 2 เลือกขนาด")?.name, "อะคริลิค ขั้น 2 เลือกขนาด");
   assert.equal(findSet(sets, ""), undefined);
   assert.equal(findSet(sets, "ชายบันได"), undefined);
 });
@@ -223,10 +223,55 @@ test("AI ขอให้ส่งการ์ด → ลูกค้าได้
   let setsSeen: string[] = [];
   await handleEvent(msgEvent({ type: "text", text: "อะคริลิคมีสีอะไรบ้าง" }), {
     line, getFaq: async () => "faq", getImageSets: async () => sampleSets(),
-    ask: async (_f, _q, _u, sets) => { setsSeen = sets; return { reply: "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ", needsAdmin: false, adminNote: "", showSet: "สีกรอบอะคริลิค" }; },
+    ask: async (_f, _q, _u, sets) => { setsSeen = sets; return { reply: "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ", needsAdmin: false, adminNote: "", showSet: "อะคริลิค ขั้น 1 เลือกสี" }; },
   });
-  assert.deepEqual(setsSeen, ["สีกรอบอะคริลิค"]);
+  assert.equal(setsSeen.length, 4);
   assert.equal(sent[0].texts.length, 2);
   assert.equal(sent[0].texts[0], "มี 4 แบบครับ เลือกแบบที่ชอบได้เลยครับ");
   assert.equal((sent[0].texts[1] as any).type, "flex");
+});
+
+// ---------- เลือกเป็นขั้นตอน ----------
+import { parseChoice, nextStepSet, stepOf } from "../lib/images.ts";
+
+test("ชุดตัวอย่างอะคริลิค 4 ขั้น: สี → ขนาด → เส้นขอบ → เส้นกลาง", () => {
+  const sets = sampleSets();
+  assert.deepEqual(sets.map((s) => stepOf(s.name)), [1, 2, 3, 4].map((step) => ({ product: "อะคริลิค", step })));
+  assert.deepEqual(sets[1].items.map((i) => [i.name, i.price]), [["สั้น-สั้น", "399.-"], ["สั้น-ยาว", "419.-"], ["ยาว-ยาว", "419.-"]]);
+});
+
+test("สีขาว: สี → ขนาด → เส้นขอบ → เส้นกลาง → จบ · ปุ่มพกตัวเลือกก่อนหน้า", () => {
+  const sets = sampleSets();
+  const white = parseChoice(choiceText(sets[0], sets[0].items[1]), sets)!;
+  assert.deepEqual(white.picked, ["สีเรียบ ขาว"]);
+  assert.equal(nextStepSet(sets, white.set, white.picked)?.name, "อะคริลิค ขั้น 2 เลือกขนาด");
+  // กดขนาด "สั้น-ยาว" จากการ์ดที่พก "เลือกแล้ว: สีเรียบ ขาว"
+  const size = parseChoice(choiceText(sets[1], sets[1].items[1], white.picked), sets)!;
+  assert.deepEqual(size.picked, ["สีเรียบ ขาว", "สั้น-ยาว"]);
+  assert.equal(nextStepSet(sets, size.set, size.picked)?.name, "อะคริลิค ขั้น 3 เลือกเส้นขอบ");
+  const center = parseChoice(choiceText(sets[3], sets[3].items[1], ["สีเรียบ ขาว", "สั้น-ยาว", "ไร้เส้นขอบ"]), sets)!;
+  assert.deepEqual(center.picked, ["สีเรียบ ขาว", "สั้น-ยาว", "ไร้เส้นขอบ", "ไม่มีเส้นกลาง"]);
+  assert.equal(nextStepSet(sets, center.set, center.picked), undefined);
+  assert.equal(parseChoice("สวัสดีครับ", sets), null);
+});
+
+test("ลายเคฟล่า: ยังเลือกขนาด แต่ข้ามขั้นเส้นขอบ ไปเส้นกลางเลย", () => {
+  const sets = sampleSets();
+  const kevlar = parseChoice(choiceText(sets[0], sets[0].items[3]), sets)!;
+  assert.equal(nextStepSet(sets, kevlar.set, kevlar.picked)?.name, "อะคริลิค ขั้น 2 เลือกขนาด");
+  const size = parseChoice(choiceText(sets[1], sets[1].items[0], kevlar.picked), sets)!;
+  assert.equal(nextStepSet(sets, size.set, size.picked)?.name, "อะคริลิค ขั้น 4 เลือกเส้นกลาง");
+});
+
+test("ลูกค้ากดเลือกสี แต่ AI ลืมส่งขั้นต่อ → บอทส่งการ์ดขั้นขนาดให้เอง (ปุ่มพกสีที่เลือก)", async () => {
+  const { line, sent } = fakeLine();
+  const sets = sampleSets();
+  await handleEvent(msgEvent({ type: "text", text: choiceText(sets[0], sets[0].items[0]) }), {
+    line, getFaq: async () => "faq", getImageSets: async () => sets,
+    ask: async () => ({ reply: "รับทราบสีดำครับ", needsAdmin: false, adminNote: "", showSet: "" }),
+  });
+  const flex = sent[0].texts[1];
+  assert.equal(flex.type, "flex");
+  assert.match(flex.altText, /ขั้น 2 เลือกขนาด/);
+  assert.match(flex.contents.contents[0].footer.contents[0].action.text, /\| เลือกแล้ว: สีเรียบ ดำ$/);
 });
