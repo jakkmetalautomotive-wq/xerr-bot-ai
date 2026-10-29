@@ -202,7 +202,8 @@ test("การ์ดปัดดู (7 สี): ใบละแบบ มีร
   assert.ok(flex.altText.length <= 400);
   const bubbles = (flex.contents as any).contents;
   assert.equal(bubbles.length, 7);
-  assert.match(bubbles[0].hero.url, /^https:\/\/.+\.png$/);
+  assert.match(bubbles[0].hero.url, /^https:\/\/.+\/api\/img\?id=1ObHYDZaanBdC3UhtulEtHT41kmFgfrGh$/); // รูปจริงจาก Drive ผ่าน /api/img
+  assert.match(bubbles[6].hero.url, /\/api\/img\?id=15UyD2nLQugAuI4-F8Ezdkz3YpnrfbwRe$/); // เคฟล่า
   const action = bubbles[3].footer.contents[0].action;
   assert.equal(action.type, "message");
   assert.equal(action.label, "เลือกแบบที่ 4");

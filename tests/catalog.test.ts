@@ -31,7 +31,9 @@ test("ปุ่มเมนู 🛒 สั่งซื้อ → การ์ด
   await handleEvent(msgEvent(MENU.order), { line, getImageSets: async () => sampleSets(), ask: noAsk });
   const bubbles = sent[0].texts[1].contents.contents;
   assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].contents[1].text), ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "ไร้ขอบ", "รถตู้/บรรทุก", "กรอบป้ายภาษี พรบ."]);
-  assert.ok(bubbles.every((b: any) => /^https:\/\/.+\.png$/.test(b.hero.url)));
+  assert.ok(bubbles.every((b: any) => /^https:\/\//.test(b.hero.url)));
+  // รูปจริงจาก Drive ทุกประเภท ยกเว้นป้ายภาษี (ยังไม่มีรูป → ภาพประกอบ)
+  assert.deepEqual(bubbles.map((b: any) => b.hero.url.includes("/api/img?id=")), [true, true, true, true, true, true, false]);
 });
 
 test("ทุกสินค้า (ยกเว้นไร้ขอบ) มีขั้นแรก · ปุ่มด่วนป้ายไม่เกิน 20 ตัว · ข้อความปุ่มไม่เกิน 300", () => {
@@ -42,44 +44,70 @@ test("ทุกสินค้า (ยกเว้นไร้ขอบ) มี�
     const qr = buildQuickReply(s, ["สีดำ", "สี่เหลี่ยมขอบใหญ่"]);
     assert.ok(qr.items.every((i) => i.action.label.length <= 20 && i.action.text.length <= 300), s.name);
   }
-  // ตัวเลือกที่ต้องเห็นภาพ = การ์ด · ตัวเลือกง่าย = ปุ่มด่วน
-  assert.deepEqual(sets.filter(isQuickSet).map((s) => s.name), [
-    "สแตนเลส ขั้น 2 เลือกแผ่นอะคริลิคใส", "เหล็กพ่นสี ขั้น 1 เลือกสี", "เหล็กพ่นสี ขั้น 3 เลือกแผ่นอะคริลิคใส",
-    "พลาสติก ABS ขั้น 1 เลือกสี", "พลาสติก ABS ขั้น 2 เลือกเส้นคาดกลาง", "รถตู้/บรรทุก ขั้น 1 เลือกวัสดุ", "กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ",
-  ]);
+  // มีรูปจริงแล้ว = การ์ด · เหลือปุ่มด่วนเฉพาะชุดที่ยังไม่มีรูป
+  assert.deepEqual(sets.filter(isQuickSet).map((s) => s.name), ["กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ"]);
 });
 
-test("กดการ์ดสแตนเลส → การ์ดเลือกทรง (ไม่เรียก AI) · กดเหล็กพ่นสี → ปุ่มด่วนสีขาว/ดำ", async () => {
+test("กดการ์ดสแตนเลส → การ์ดเลือกทรง (ไม่เรียก AI) · กดป้ายภาษี → ปุ่มด่วนรถยนต์/มอเตอร์ไซค์ (ยังไม่มีรูป)", async () => {
   const a = fakeLine();
   await handleEvent(msgEvent(catPick("สแตนเลส")), { line: a.line, getImageSets: async () => sampleSets(), ask: noAsk });
   assert.equal(a.sent[0].texts[0], "กรอบป้ายสแตนเลส 279.- / 319.- (มีแผ่นใส) 😊 เลือกทรงได้เลยครับ");
   assert.match(a.sent[0].texts[1].altText, /^สแตนเลส ขั้น 1 เลือกทรง/);
   const b = fakeLine();
-  await handleEvent(msgEvent(catPick("เหล็กพ่นสี")), { line: b.line, getImageSets: async () => sampleSets(), ask: noAsk });
+  await handleEvent(msgEvent(catPick("กรอบป้ายภาษี พรบ.")), { line: b.line, getImageSets: async () => sampleSets(), ask: noAsk });
   assert.equal(b.sent[0].texts.length, 1);
   const msg = b.sent[0].texts[0];
-  assert.match(msg.text, /เลือกสีได้เลยครับ/);
-  assert.deepEqual(msg.quickReply.items.map((i: any) => i.action.label), ["สีขาว", "สีดำ"]);
-  assert.equal(msg.quickReply.items[1].action.text, "เลือกแบบที่ 2: สีดำ (เหล็กพ่นสี ขั้น 1 เลือกสี)");
+  assert.match(msg.text, /เลือกประเภทรถได้เลยครับ/);
+  assert.deepEqual(msg.quickReply.items.map((i: any) => i.action.label), ["รถยนต์ 69.-", "มอเตอร์ไซค์ 129.-"]);
 });
 
-test("เหล็กพ่นสี: สีดำ → ทรง (การ์ด) → แผ่นใส (ปุ่มด่วน) → ชวนป้ายภาษี · ยอด 299 + 30 (AI ล่มก็ไปต่อได้)", async () => {
+test("ทรงคางหมูไม่มีแบบแผ่นใส: เลือกคางหมูแล้วข้ามขั้นแผ่นใส ไปชวนป้ายภาษีเลย · สแตนเลส 279 / เหล็กพ่นสี 249", async () => {
+  const sets = sampleSets();
+  const deps = (line: LinePort) => ({ line, getImageSets: async () => sets, ask: noAsk });
+  const a = fakeLine();
+  await handleEvent(msgEvent(pick("เหล็กพ่นสี ขั้น 2 เลือกทรง", "คางหมู", ["สีดำ"])), deps(a.line));
+  const msg = a.sent[0].texts[0];
+  assert.match(msg.text, /สรุปที่เลือก: กรอบป้ายเหล็กพ่นสี สีดำ \/ คางหมู/);
+  assert.deepEqual(decodePostback(msg.quickReply.items[1].action.data), { k: "tax", y: 0, p: "เหล็กพ่นสี", s: ["สีดำ", "คางหมู"] });
+  const total = (product: string, picks: string[]) => priceOrder(sets, { code: "x", product, picks, tax: false })!.base;
+  assert.equal(total("เหล็กพ่นสี", ["สีดำ", "คางหมู"]), 249);
+  assert.equal(total("สแตนเลส", ["คางหมู"]), 279);
+  // ทรงสี่เหลี่ยมยังไปขั้นแผ่นใสตามปกติ (รูปแผ่นใสตามทรง)
+  const b = fakeLine();
+  await handleEvent(msgEvent(pick("สแตนเลส ขั้น 1 เลือกทรง", "สี่เหลี่ยมขอบเล็ก")), deps(b.line));
+  const ids = b.sent[0].texts[1].contents.contents.map((x: any) => x.hero.url.split("id=")[1]);
+  assert.deepEqual(ids, ["1kJz6WBKwBsgpl9HWVEl8ensMB-0XizEv", "14P4dzfORCZ7xLlurVe6YqSX9vpC23Nlq"]);
+});
+
+test("เหล็กพ่นสี: สีขาว → ทรง (การ์ดรูปสีขาว) → แผ่นใส (การ์ดรูปตามสี+ทรง) → ชวนป้ายภาษี · ยอด 299 + 30 (AI ล่มก็ไปต่อได้)", async () => {
   const sets = sampleSets();
   const deps = (line: LinePort) => ({ line, getFaq: async () => "faq", getImageSets: async () => sets, ask: async (): Promise<never> => { throw new Error("AI ล่ม"); } });
+  const heroIds = (flex: any) => flex.contents.contents.map((b: any) => b.hero.url.split("id=")[1]);
   const a = fakeLine();
-  await handleEvent(msgEvent(pick("เหล็กพ่นสี ขั้น 1 เลือกสี", "สีดำ")), deps(a.line));
+  await handleEvent(msgEvent(pick("เหล็กพ่นสี ขั้น 1 เลือกสี", "สีขาว")), deps(a.line));
   assert.match(a.sent[0].texts[1].altText, /เหล็กพ่นสี ขั้น 2 เลือกทรง/);
+  assert.deepEqual(heroIds(a.sent[0].texts[1]), ["1Ss0Mac7UoHx4yqyI__0YMt7kbNWGSnfC", "196cXacCJij58PqYjj3XoAnIDfrdTLnu-", "1Gr9ZSAK6JFVv48adlR6baQtc-6ndo3Re"]);
   const b = fakeLine();
-  await handleEvent(msgEvent(pick("เหล็กพ่นสี ขั้น 2 เลือกทรง", "คางหมู", ["สีดำ"])), deps(b.line));
-  const qr = b.sent[0].texts[0].quickReply.items;
-  assert.deepEqual(qr.map((i: any) => i.action.label), ["ไม่มีแผ่นใส 249.-", "มีแผ่นใส 299.-"]);
-  assert.match(qr[1].action.text, /\| เลือกแล้ว: สีดำ, คางหมู$/);
+  await handleEvent(msgEvent(pick("เหล็กพ่นสี ขั้น 2 เลือกทรง", "สี่เหลี่ยมขอบใหญ่", ["สีขาว"])), deps(b.line));
+  const clear = b.sent[0].texts[1];
+  assert.match(clear.altText, /เหล็กพ่นสี ขั้น 3 เลือกแผ่นอะคริลิคใส/);
+  assert.deepEqual(heroIds(clear), ["1Ss0Mac7UoHx4yqyI__0YMt7kbNWGSnfC", "1BalvjndYIKOmweM-5eX3Lhbpm4wSrImx"]);
+  const yesClear = clear.contents.contents[1].footer.contents[0].action.text;
+  assert.match(yesClear, /\| เลือกแล้ว: สีขาว, สี่เหลี่ยมขอบใหญ่$/);
   const c = fakeLine();
-  await handleEvent(msgEvent(qr[1].action.text), deps(c.line));
+  await handleEvent(msgEvent(yesClear), deps(c.line));
   const yes = decodePostback(c.sent[0].texts[0].quickReply.items[0].action.data)!;
-  assert.deepEqual(yes, { k: "tax", y: 1, p: "เหล็กพ่นสี", s: ["สีดำ", "คางหมู", "มีแผ่นใส"] });
-  const o = priceOrder(sets, { code: "x", product: "เหล็กพ่นสี", picks: ["สีดำ", "คางหมู", "มีแผ่นใส"], tax: false })!;
+  assert.deepEqual(yes, { k: "tax", y: 1, p: "เหล็กพ่นสี", s: ["สีขาว", "สี่เหลี่ยมขอบใหญ่", "มีแผ่นใส"] });
+  const o = priceOrder(sets, { code: "x", product: "เหล็กพ่นสี", picks: ["สีขาว", "สี่เหลี่ยมขอบใหญ่", "มีแผ่นใส"], tax: false })!;
   assert.deepEqual([o.base, o.shipping, o.total], [299, 30, 329]);
+});
+
+test("อะคริลิค: รูปขั้นขนาด / เส้นคาดกลาง เปลี่ยนตามสี + มี/ไร้เส้นขอบ ที่เลือก · เคฟล่ามีรูปของตัวเอง", () => {
+  const ids = (setName: string, picked: string[]) => (buildCarousel(setNamed(setName), picked).contents as any).contents.map((b: any) => b.hero.url.split("id=")[1]);
+  assert.deepEqual(ids("อะคริลิค ขั้น 2 เลือกขนาด", ["สีเทา ไร้เส้นขอบ"]), ["1enKtjEX68h-Qb1lzo08RSf2hE2EJKO9k", "1ynSs_Ou_VIJG9B7IPCaGgst5tsHPvzQP", "1CfWNC6D4Ut5nYSIUakJXXgsPFjDm8jOI"]);
+  assert.deepEqual(ids("อะคริลิค ขั้น 2 เลือกขนาด", ["สีเทา มีเส้นขอบ"]), ["1LRc1yj2Q_bgUm1qsqwf9FWuSBU8V_SpL", "1BtRbn3P39BJrXeGwoxK2bICNODa-umJR", "1xa-8_-G_VeOUoa35pkOgfXbWhz4-FFfU"]);
+  assert.deepEqual(ids("อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง", ["สีขาว ไร้เส้นขอบ", "สั้น-ยาว"]), ["1ORK9I7P2cVTKm92lh_kjPFt0mh6Cv0sP", "1CqCAdaXC5GpIqWyKqtrT49joR0_EjDVu"]);
+  assert.deepEqual(ids("อะคริลิค ขั้น 2 เลือกขนาด", ["ลายเคฟล่า ดำ มีเส้นขอบ"]), ["1EvnP_5z-CX7w7BdNBm3F3Xpl4c3NFzVY", "17jNY6cKQtBJBgaCV610H9-oxVBvsqPLx", "10tdDU2byg_VYzM3Wc1C-A6u_UF24ReAt"]);
 });
 
 test("ราคาจากการ์ดประเภทสินค้า: ABS 199 · รถตู้/บรรทุก 399 · สแตนเลส 279/319", () => {
@@ -174,7 +202,7 @@ test("ปุ่มเมนู ⭐ รีวิวสินค้า → กา�
     "https://canva.link/cm14wzc6vnbed6p", "https://canva.link/ve2f6ufpe1z3dx9", "https://canva.link/pny4wokozswx4dq",
     "https://canva.link/2sz7a5wfwb41g3n", "https://canva.link/59ohj9ig99g7t1w",
   ]);
-  assert.ok(bubbles.every((b: any) => b.footer.contents[0].action.label === "⭐ ดูรีวิว" && /\/samples\/cat-.+\.png$/.test(b.hero.url)));
+  assert.ok(bubbles.every((b: any) => b.footer.contents[0].action.label === "⭐ ดูรีวิว" && b.hero.url.includes("/api/img?id=")));
 });
 
 test("ลิงก์รีวิวจากคอลัมน์ ลิงก์รีวิว ในชีท: แทนลิงก์สำรอง + เพิ่มการ์ดรุ่นใหม่ได้", () => {
