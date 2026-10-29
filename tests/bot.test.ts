@@ -1,4 +1,5 @@
 // ทดสอบแบบไม่ต้องใช้เน็ต/คีย์ — รัน: npm test
+import { upsellChoice } from "./helpers.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FinishReason } from "@google/genai";
@@ -305,7 +306,7 @@ test("Sheet/AI ล่มตอนกดขั้นสุดท้าย → ย
   await handleEvent(msgEvent({ type: "text", text: choiceText(sets[3], sets[3].items[0], ["สีเทา ไร้เส้นขอบ", "สั้น-ยาว"]) }), {
     line, adminUserId: "UADMIN", getFaq: async () => { throw new Error("sheet down"); }, getImageSets: async () => sets,
   });
-  assert.match(sent[0].texts[0].text, /สรุปที่เลือก: กรอบป้ายอะคริลิค สีเทา ไร้เส้นขอบ \/ สั้น-ยาว \/ มีเส้นคาดกลาง/);
+  assert.match(sent[0].texts[0].altText, /สรุปที่เลือก: กรอบป้ายอะคริลิค สีเทา ไร้เส้นขอบ \/ สั้น-ยาว \/ มีเส้นคาดกลาง/);
 });
 
 test("สินค้าที่การ์ดไม่มีราคา + AI ล่มตอนขั้นสุดท้าย → สรุปที่เลือก + แจ้งแอดมิน", async () => {
@@ -390,9 +391,19 @@ test("กดการ์ดขั้นสุดท้าย → ชวนเพ
   });
   assert.equal(asked, false);
   const msg = sent[0].texts[0];
-  assert.match(msg.text, /เพิ่มกรอบป้ายภาษี/);
-  assert.equal(msg.quickReply.items.length, 2);
-  const yes = decodePostback(msg.quickReply.items[0].action.data)!;
+  assert.equal(msg.type, "flex");
+  assert.match(msg.altText, /เพิ่มกรอบป้ายภาษี/);
+  const photo = msg.contents.body.contents[0].contents[0];
+  assert.equal(photo.width, "200px"); // ย่อจากเต็มการ์ด
+  assert.match(photo.contents[0].url, /^https:\/\/.+\/products\/tax-car\.jpg$/);
+  // ปุ่มใหญ่พื้นขาวตัวดำ + ✅ / ❌
+  const buttons = msg.contents.footer.contents;
+  assert.deepEqual(buttons.map((b: any) => [b.contents[0].text, b.backgroundColor, b.contents[0].color, b.contents[0].size]), [
+    ["✅ เพิ่มป้าย พรบ. 69.-", "#FFFFFF", "#111111", "lg"],
+    ["❌ ไม่เพิ่ม", "#FFFFFF", "#111111", "lg"],
+  ]);
+  assert.ok(buttons.every((b: any) => b.action.label.length <= 20));
+  const yes = decodePostback(upsellChoice(msg, 0))!;
   assert.deepEqual(yes, { k: "tax", y: 1, p: "อะคริลิค", s: PICKS });
 });
 

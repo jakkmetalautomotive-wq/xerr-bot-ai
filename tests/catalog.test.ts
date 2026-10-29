@@ -1,4 +1,5 @@
 // การ์ดประเภทสินค้า 7 ใบ + ขั้นตอนต่อสินค้า + ป้ายภาษีอย่างเดียว + ปุ่ม Rich Menu — รัน: npm test
+import { upsellChoice } from "./helpers.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
@@ -71,8 +72,8 @@ test("ทรงคางหมูไม่มีแบบแผ่นใส: เ
   const a = fakeLine();
   await handleEvent(msgEvent(pick("เหล็กพ่นสี ขั้น 2 เลือกทรง", "คางหมู", ["สีดำ"])), deps(a.line));
   const msg = a.sent[0].texts[0];
-  assert.match(msg.text, /สรุปที่เลือก: กรอบป้ายเหล็กพ่นสี สีดำ \/ คางหมู/);
-  assert.deepEqual(decodePostback(msg.quickReply.items[1].action.data), { k: "tax", y: 0, p: "เหล็กพ่นสี", s: ["สีดำ", "คางหมู"] });
+  assert.match(msg.altText, /สรุปที่เลือก: กรอบป้ายเหล็กพ่นสี สีดำ \/ คางหมู/);
+  assert.deepEqual(decodePostback(upsellChoice(msg, 1)), { k: "tax", y: 0, p: "เหล็กพ่นสี", s: ["สีดำ", "คางหมู"] });
   const total = (product: string, picks: string[]) => priceOrder(sets, { code: "x", product, picks, tax: false })!.base;
   assert.equal(total("เหล็กพ่นสี", ["สีดำ", "คางหมู"]), 249);
   assert.equal(total("สแตนเลส", ["คางหมู"]), 279);
@@ -100,7 +101,7 @@ test("เหล็กพ่นสี: สีขาว → ทรง (การ�
   assert.match(yesClear, /\| เลือกแล้ว: สีขาว, สี่เหลี่ยมขอบใหญ่$/);
   const c = fakeLine();
   await handleEvent(msgEvent(yesClear), deps(c.line));
-  const yes = decodePostback(c.sent[0].texts[0].quickReply.items[0].action.data)!;
+  const yes = decodePostback(upsellChoice(c.sent[0].texts[0], 0))!;
   assert.deepEqual(yes, { k: "tax", y: 1, p: "เหล็กพ่นสี", s: ["สีขาว", "สี่เหลี่ยมขอบใหญ่", "มีแผ่นใส"] });
   const o = priceOrder(sets, { code: "x", product: "เหล็กพ่นสี", picks: ["สีขาว", "สี่เหลี่ยมขอบใหญ่", "มีแผ่นใส"], tax: false })!;
   assert.deepEqual([o.base, o.shipping, o.total], [299, 30, 329]);
@@ -128,8 +129,8 @@ test("กดการ์ดไร้ขอบ (ไม่มีตัวเลื
   const { line, sent } = fakeLine();
   await handleEvent(msgEvent(catPick("ไร้ขอบ")), { line, getImageSets: async () => sampleSets(), ask: noAsk });
   const msg = sent[0].texts[0];
-  assert.match(msg.text, /สรุปที่เลือก: กรอบป้ายไร้ขอบ 😊/);
-  assert.deepEqual(decodePostback(msg.quickReply.items[1].action.data), { k: "tax", y: 0, p: "ไร้ขอบ", s: [] });
+  assert.match(msg.altText, /สรุปที่เลือก: กรอบป้ายไร้ขอบ 😊/);
+  assert.deepEqual(decodePostback(upsellChoice(msg, 1)), { k: "tax", y: 0, p: "ไร้ขอบ", s: [] });
   const o = priceOrder(sampleSets(), { code: "XR-T", product: "ไร้ขอบ", picks: [], tax: false })!;
   assert.equal(o.total, 229);
   assert.match(orderSummaryText(o, "", false), /🔺 กรอบป้ายไร้ขอบ  199\.-/);

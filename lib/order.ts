@@ -1,7 +1,7 @@
 // ออเดอร์: คิดยอดด้วยโค้ด (ไม่ใช้ AI) · ข้อมูลออเดอร์เซ็นกำกับกันแก้ไข · ไม่ต้องมีฐานข้อมูล
 // ข้อมูลออเดอร์ติดไปกับปุ่ม / ลิงก์แบบฟอร์ม / ปุ่มของแอดมิน ทุกขั้น
 import crypto from "node:crypto";
-import { stepOf, CATEGORY_SET, type ImageSet } from "./images.ts";
+import { stepOf, CATEGORY_SET, CARD_THEME, baseUrl, type ImageSet } from "./images.ts";
 import { SHIPPING, TAX_CAR } from "./shop.ts";
 
 export type OrderDraft = { code: string; product: string; picks: string[]; tax: boolean };
@@ -133,16 +133,59 @@ export function decodePostback(data: string): Postback | null {
   return null;
 }
 
-// ชวนเพิ่มกรอบป้ายภาษี (ปุ่มด่วนใต้ข้อความ)
+// ชวนเพิ่มกรอบป้ายภาษี — การ์ดโทนร้าน + ปุ่มใหญ่พื้นขาวตัวดำ (ปุ่มด่วนของ LINE ปรับขนาด/สีไม่ได้)
 export function taxUpsellMessage(product: string, picks: string[]) {
-  const btn = (label: string, y: 0 | 1) => ({
-    type: "action",
-    action: { type: "postback", label, data: encodePostback({ k: "tax", y, p: product, s: picks }), displayText: label },
+  const summary = `รับทราบครับ สรุปที่เลือก: ${productLabel(product)}${picks.length ? ` ${picks.join(" / ")}` : ""} 😊`;
+  const question = `เพิ่ม${TAX_CAR.name} ${TAX_CAR.price}.- ส่งฟรีทั้งออเดอร์เลยไหมครับ (ปกติค่าส่ง ${SHIPPING.default}.-)`;
+  const t = CARD_THEME;
+  // กล่องกดได้ (ตัวหนังสือใหญ่กว่าปุ่มมาตรฐาน) → ส่ง postback เดิม
+  const choice = (label: string, y: 0 | 1) => ({
+    type: "box",
+    layout: "vertical",
+    backgroundColor: "#FFFFFF",
+    cornerRadius: "10px",
+    paddingAll: "14px",
+    action: { type: "postback", label: label.slice(0, 20), data: encodePostback({ k: "tax", y, p: product, s: picks }), displayText: label },
+    contents: [{ type: "text", text: label, size: "lg", weight: "bold", color: "#111111", align: "center" }],
   });
   return {
-    type: "text" as const,
-    text: `รับทราบครับ สรุปที่เลือก: ${productLabel(product)}${picks.length ? ` ${picks.join(" / ")}` : ""} 😊\n\nเพิ่ม${TAX_CAR.name} ${TAX_CAR.price}.- ส่งฟรีทั้งออเดอร์เลยไหมครับ (ปกติค่าส่ง ${SHIPPING.default}.-)`,
-    quickReply: { items: [btn(`เพิ่มป้ายภาษี ${TAX_CAR.price}.-`, 1), btn("ไม่เพิ่ม", 0)] },
+    type: "flex" as const,
+    altText: `${summary} ${question}`.slice(0, 400),
+    contents: {
+      type: "bubble",
+      size: "mega",
+      styles: { body: { backgroundColor: t.bgTop }, footer: { backgroundColor: t.bgBottom } },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        background: { type: "linearGradient", angle: "0deg", startColor: t.bgBottom, endColor: t.bgTop },
+        contents: [
+          // รูปกรอบป้ายภาษีรถยนต์ (public/products/tax-car.jpg) ขนาด ~2/3 การ์ด วางกลาง มุมโค้ง (จักรขอย่อจากเต็มการ์ด)
+          {
+            type: "box",
+            layout: "horizontal",
+            justifyContent: "center",
+            contents: [{
+              type: "box",
+              layout: "vertical",
+              width: "200px",
+              cornerRadius: "12px",
+              contents: [{ type: "image", url: `${baseUrl()}/products/tax-car.jpg`, size: "full", aspectRatio: "1:1", aspectMode: "cover" }],
+            }],
+          },
+          { type: "text", text: summary, color: t.title, size: "md", wrap: true },
+          { type: "separator", color: "#333333" },
+          { type: "text", text: question, color: t.accent, size: "md", weight: "bold", wrap: true },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [choice(`✅ เพิ่มป้าย พรบ. ${TAX_CAR.price}.-`, 1), choice("❌ ไม่เพิ่ม", 0)],
+      },
+    },
   };
 }
 
