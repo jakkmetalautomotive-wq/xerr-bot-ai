@@ -1,13 +1,15 @@
-// Rich Menu 2 แถว × 3 ช่อง (รูป public/richmenu.png ขนาด 2500 × 1686)
-// แถวบน: 🛒 สั่งซื้อ · 💰 ราคา · 🔧 วิธีติดตั้ง  ·  แถวล่าง: ⭐ รีวิวสินค้า · 💬 คุยกับแอดมิน · (ช่องที่ 6 ว่างไว้ก่อน)
+// Rich Menu 2 แถว × 3 ช่อง ตามรูปที่จักรทำ (public/richmenu.jpg ขนาด 2000 × 1349 — 30 ต.ค. 2026)
+// แถวบน: 🎉 โปรโมชั่น · 🛒 สั่งซื้อสินค้า · 💬 ติดต่อแอดมิน  ·  แถวล่าง: 🔧 วิธีติดตั้ง · ⭐ รีวิวสินค้า · 🎨 ออกแบบสินค้า
+// เปลี่ยนรูปเมนู: ขนาดต้องตรง RICH_MENU_SIZE (สัดส่วนกว้าง:สูง ≥ 1.45) · JPG ไม่เกิน 1 MB
 import type { messagingApi } from "@line/bot-sdk";
 import { MENU } from "./shop.ts";
 
 export const RICH_MENU_NAME = "XERR เมนูหลัก";
-export const RICH_MENU_SIZE = { width: 2500, height: 1686 };
+export const RICH_MENU_IMAGE = { path: "/richmenu.jpg", type: "image/jpeg" };
+export const RICH_MENU_SIZE = { width: 2000, height: 1349 };
 export const RICH_MENU_LAYOUT: (string | null)[][] = [
-  [MENU.order, MENU.price, MENU.install],
-  [MENU.review, MENU.admin, null], // null = ช่องว่าง กดแล้วไม่มีอะไรเกิดขึ้น
+  [MENU.promo, MENU.order, MENU.admin],
+  [MENU.install, MENU.review, MENU.design], // null = ช่องว่าง กดแล้วไม่มีอะไรเกิดขึ้น
 ];
 
 // ช่องที่มีปุ่ม → พื้นที่กดบนรูป (ช่องสุดท้ายของแถว/คอลัมน์เก็บเศษพิกเซลให้ครบขอบรูป)

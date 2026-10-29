@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets, choiceText, CATEGORY_SET, buildQuickReply, isQuickSet, firstStepSet, parseImageSets, buildCarousel, parseLinkColumn, installSet, reviewSet, REVIEW_SET } from "../lib/images.ts";
 import { priceOrder, decodePostback, orderSummaryText, verifyOrder } from "../lib/order.ts";
-import { MENU } from "../lib/shop.ts";
+import { MENU, adminNotice } from "../lib/shop.ts";
 import { squareOnWhite, PHOTO_SIZE, cleanPhotoPath } from "../lib/photo.ts";
 import { richMenuRequest } from "../lib/richmenu.ts";
 
@@ -219,15 +219,39 @@ test("ลิงก์รีวิวจากคอลัมน์ ลิงก�
   assert.equal(set.items.length, 6);
 });
 
-test("Rich Menu 2 แถว × 3 ช่อง: 5 ปุ่มตรงตำแหน่ง · ช่องที่ 6 ว่าง · พื้นที่กดไม่เกินขอบรูป", () => {
+test("Rich Menu ตามรูปจักร 2 แถว × 3: โปรโมชั่น/สั่งซื้อ/แอดมิน · ติดตั้ง/รีวิว/ออกแบบ · ขนาดตรงไฟล์รูป", async () => {
   const req = richMenuRequest() as any;
-  assert.deepEqual(req.size, { width: 2500, height: 1686 });
+  assert.deepEqual(req.size, { width: 2000, height: 1349 });
   const areas = req.areas.map((a: any) => [(a.action as any).text, a.bounds.x, a.bounds.y, a.bounds.width, a.bounds.height]);
   assert.deepEqual(areas, [
-    [MENU.order, 0, 0, 833, 843], [MENU.price, 833, 0, 834, 843], [MENU.install, 1667, 0, 833, 843],
-    [MENU.review, 0, 843, 833, 843], [MENU.admin, 833, 843, 834, 843],
+    [MENU.promo, 0, 0, 667, 675], [MENU.order, 667, 0, 666, 675], [MENU.admin, 1333, 0, 667, 675],
+    [MENU.install, 0, 675, 667, 674], [MENU.review, 667, 675, 666, 674], [MENU.design, 1333, 675, 667, 674],
   ]);
   assert.ok(req.areas.every((a: any) => (a.action as any).label.length <= 20));
+  // LINE รับรูปที่ขนาดตรงกับเมนู · ไม่เกิน 1 MB · สัดส่วน ≥ 1.45
+  const sharp = (await import("sharp")).default;
+  const { statSync } = await import("node:fs");
+  const meta = await sharp("public/richmenu.jpg").metadata();
+  assert.deepEqual([meta.format, meta.width, meta.height], ["jpeg", 2000, 1349]);
+  assert.ok(statSync("public/richmenu.jpg").size < 1024 * 1024);
+  assert.ok(2000 / 1349 >= 1.45);
+});
+
+test("ปุ่มเมนู 🎉 โปรโมชั่น / 🎨 ออกแบบสินค้า → ตอบด้วยโค้ด + ปุ่มสั่งซื้อ · นอกเวลา: ทิ้งข้อความไว้ แอดมินรีบติดต่อกลับ", async () => {
+  const a = fakeLine();
+  await handleEvent(msgEvent(MENU.promo), { line: a.line, getImageSets: async () => sampleSets(), ask: noAsk });
+  const promo = a.sent[0].texts[0];
+  assert.match(promo.text, /ลดสูงสุด 40%/);
+  assert.match(promo.text, /กรอบป้ายภาษี พรบ\. รถยนต์ 69\.- ส่งฟรีทั้งออเดอร์/);
+  assert.match(promo.text, /ส่วนลด 50\.-/);
+  assert.equal(promo.quickReply.items[0].action.text, MENU.order);
+  const b = fakeLine();
+  await handleEvent(msgEvent(MENU.design), { line: b.line, getImageSets: async () => sampleSets(), ask: noAsk });
+  assert.match(b.sent[0].texts[0].text, /Coming soon/);
+  // วันอาทิตย์ / ตี 2 = นอกเวลา → ไม่บอกเวลาเปิด
+  assert.equal(adminNotice(new Date("2026-11-01T05:00:00+07:00")), "ทิ้งข้อความไว้ได้เลยครับ แอดมินจะรีบติดต่อกลับให้เร็วที่สุด 🙏");
+  assert.equal(adminNotice(new Date("2026-11-02T02:00:00+07:00")), "ทิ้งข้อความไว้ได้เลยครับ แอดมินจะรีบติดต่อกลับให้เร็วที่สุด 🙏");
+  assert.equal(adminNotice(new Date("2026-11-02T10:00:00+07:00")), "เดี๋ยวแอดมินตอบกลับสักครู่ครับ");
 });
 
 test("การ์ดประเภทสินค้า: แถว 1 แบบที่ N + ชื่อ · แถว 2 ราคาปกติขีดฆ่า · แถว 3 ราคาขายตัวใหญ่ · ไม่มีแถวรายละเอียด", () => {

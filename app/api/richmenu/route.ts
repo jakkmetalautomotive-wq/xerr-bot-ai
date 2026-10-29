@@ -1,10 +1,10 @@
 // ติดตั้ง Rich Menu (เมนูด้านล่างแชท) — เลย์เอาต์ปุ่มอยู่ใน lib/richmenu.ts
 // /api/richmenu?key=HEALTH_KEY          → ดูว่าตอนนี้ตั้งเมนูไหนไว้
-// /api/richmenu?key=HEALTH_KEY&apply=1  → สร้างเมนูใหม่ (รูป public/richmenu.png) ตั้งเป็นเมนูหลัก แล้วลบเมนูชื่อเดียวกันที่สร้างไว้ก่อนหน้า
+// /api/richmenu?key=HEALTH_KEY&apply=1  → สร้างเมนูใหม่ (รูปตาม RICH_MENU_IMAGE เช่น public/richmenu.jpg) ตั้งเป็นเมนูหลัก แล้วลบเมนูชื่อเดียวกันที่สร้างไว้ก่อนหน้า
 // ใช้ LINE_CHANNEL_ACCESS_TOKEN ใน Vercel — ไม่แสดงคีย์ใด ๆ
 import { messagingApi } from "@line/bot-sdk";
 import { baseUrl } from "@/lib/images.ts";
-import { RICH_MENU_NAME as NAME, richMenuRequest } from "@/lib/richmenu.ts";
+import { RICH_MENU_NAME as NAME, RICH_MENU_IMAGE, richMenuRequest } from "@/lib/richmenu.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,10 +28,10 @@ export async function GET(req: Request) {
       return Response.json({ ok: true, defaultId, menus: before.map((m) => ({ id: m.richMenuId, name: m.name, isDefault: m.richMenuId === defaultId })) });
     }
 
-    const img = await fetch(`${baseUrl()}/richmenu.png`, { cache: "no-store" });
+    const img = await fetch(`${baseUrl()}${RICH_MENU_IMAGE.path}`, { cache: "no-store" });
     if (!img.ok) throw new Error(`โหลดรูปเมนูไม่ได้ (${img.status})`);
     const { richMenuId } = await api.createRichMenu(richMenuRequest());
-    await blob.setRichMenuImage(richMenuId, new Blob([await img.arrayBuffer()], { type: "image/png" }));
+    await blob.setRichMenuImage(richMenuId, new Blob([await img.arrayBuffer()], { type: RICH_MENU_IMAGE.type }));
     await api.setDefaultRichMenu(richMenuId);
 
     // ลบเฉพาะเมนูที่หน้านี้สร้างไว้รอบก่อน (ชื่อเดียวกัน) — เมนูอื่นไม่แตะ

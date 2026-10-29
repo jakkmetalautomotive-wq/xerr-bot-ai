@@ -7,7 +7,7 @@ import {
   getImageSets, findSet, buildCarousel, buildQuickReply, parseChoice, nextStepSet, firstStepSet, stepOf, stepTitle, isQuickSet,
   CATEGORY_SET, INSTALL_SET, REVIEW_SET, type FlexOut, type ImageSet,
 } from "./images.ts";
-import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, adminNotice, bangkokClock } from "./shop.ts";
+import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage,
   decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
@@ -90,8 +90,15 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     addTurn(userId, question, `[ส่งการ์ด "${CATEGORY_SET}" ให้ลูกค้าเลือกแล้ว]`);
     return;
   }
-  if (question.trim() === MENU.price && category) {
-    const text = priceListText(category);
+  // ปุ่มที่ตอบเป็นข้อความ + ปุ่มด่วน "🛒 สั่งซื้อ"
+  const textMenus: [text: string, reply: () => string | null][] = [
+    [MENU.price, () => (category ? priceListText(category) : null)],
+    [MENU.promo, promoText],
+    [MENU.design, () => DESIGN_TEXT],
+  ];
+  for (const [menuText, reply] of textMenus) {
+    const text = question.trim() === menuText ? reply() : null;
+    if (!text) continue;
     await send(deps, replyToken, userId, [{ type: "text", text, quickReply: { items: [{ type: "action", action: { type: "message", label: MENU.order, text: MENU.order } }] } }]);
     addTurn(userId, question, text);
     return;
@@ -109,7 +116,7 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     return;
   }
   if (question.trim() === MENU.admin) {
-    await send(deps, replyToken, userId, ["รับทราบครับ 🙏 แจ้งแอดมินให้แล้ว พิมพ์เรื่องที่ต้องการทิ้งไว้ได้เลยครับ", adminNotice()]);
+    await send(deps, replyToken, userId, ["รับทราบครับ 🙏 แจ้งแอดมินให้แล้ว", adminNotice()]);
     await notifyAdmin(deps, userId, "ลูกค้ากดปุ่ม \"คุยกับแอดมิน\"");
     return;
   }
