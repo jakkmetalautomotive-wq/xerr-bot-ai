@@ -33,8 +33,10 @@ test("ปุ่มเมนู 🛒 สั่งซื้อ → การ์ด
   const bubbles = sent[0].texts[1].contents.contents;
   assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].contents[1].text), ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "ไร้ขอบ", "รถตู้/บรรทุก", "กรอบป้ายภาษี พรบ."]);
   assert.ok(bubbles.every((b: any) => /^https:\/\//.test(b.hero.url)));
-  // รูปจริงจาก Drive ทุกประเภท ยกเว้นป้ายภาษี (ยังไม่มีรูป → ภาพประกอบ)
+  // รูปจริงจาก Drive ทุกประเภท ยกเว้นป้ายภาษี (รูปเก็บในบอท public/products)
   assert.deepEqual(bubbles.map((b: any) => b.hero.url.includes("/api/img?id=")), [true, true, true, true, true, true, false]);
+  assert.match(bubbles[6].hero.url, /\/products\/tax-car\.jpg$/);
+  assert.ok(!bubbles.some((b: any) => b.hero.url.includes("/samples/")), "ไม่เหลือภาพประกอบชั่วคราวแล้ว");
 });
 
 test("ทุกสินค้า (ยกเว้นไร้ขอบ) มีขั้นแรก · ปุ่มด่วนป้ายไม่เกิน 20 ตัว · ข้อความปุ่มไม่เกิน 300", () => {
@@ -45,21 +47,22 @@ test("ทุกสินค้า (ยกเว้นไร้ขอบ) มี�
     const qr = buildQuickReply(s, ["สีดำ", "สี่เหลี่ยมขอบใหญ่"]);
     assert.ok(qr.items.every((i) => i.action.label.length <= 20 && i.action.text.length <= 300), s.name);
   }
-  // มีรูปจริงแล้ว = การ์ด · เหลือปุ่มด่วนเฉพาะชุดที่ยังไม่มีรูป
-  assert.deepEqual(sets.filter(isQuickSet).map((s) => s.name), ["กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ"]);
+  // ทุกขั้นมีรูปจริงแล้ว = การ์ดหมด ไม่เหลือปุ่มด่วน
+  assert.deepEqual(sets.filter(isQuickSet).map((s) => s.name), []);
 });
 
-test("กดการ์ดสแตนเลส → การ์ดเลือกทรง (ไม่เรียก AI) · กดป้ายภาษี → ปุ่มด่วนรถยนต์/มอเตอร์ไซค์ (ยังไม่มีรูป)", async () => {
+test("กดการ์ดสแตนเลส → การ์ดเลือกทรง (ไม่เรียก AI) · กดป้ายภาษี → การ์ดรูปรถยนต์/มอเตอร์ไซค์", async () => {
   const a = fakeLine();
   await handleEvent(msgEvent(catPick("สแตนเลส")), { line: a.line, getImageSets: async () => sampleSets(), ask: noAsk });
   assert.equal(a.sent[0].texts[0], "กรอบป้ายสแตนเลส 279.- / 319.- (มีแผ่นใส) 😊 เลือกทรงได้เลยครับ");
   assert.match(a.sent[0].texts[1].altText, /^สแตนเลส ขั้น 1 เลือกทรง/);
   const b = fakeLine();
   await handleEvent(msgEvent(catPick("กรอบป้ายภาษี พรบ.")), { line: b.line, getImageSets: async () => sampleSets(), ask: noAsk });
-  assert.equal(b.sent[0].texts.length, 1);
-  const msg = b.sent[0].texts[0];
-  assert.match(msg.text, /เลือกประเภทรถได้เลยครับ/);
-  assert.deepEqual(msg.quickReply.items.map((i: any) => i.action.label), ["รถยนต์ 69.-", "มอเตอร์ไซค์ 129.-"]);
+  const [intro, cards] = b.sent[0].texts;
+  assert.match(intro, /เลือกประเภทรถได้เลยครับ/);
+  const bubbles = cards.contents.contents;
+  assert.deepEqual(bubbles.map((x: any) => x.body.contents[1].contents[1].text), ["รถยนต์", "มอเตอร์ไซค์"]);
+  assert.deepEqual(bubbles.map((x: any) => x.hero.url.split("/products/")[1]), ["tax-car.jpg", "tax-moto.jpg"]);
 });
 
 test("ทรงคางหมูไม่มีแบบแผ่นใส: เลือกคางหมูแล้วข้ามขั้นแผ่นใส ไปชวนป้ายภาษีเลย · สแตนเลส 279 / เหล็กพ่นสี 249", async () => {

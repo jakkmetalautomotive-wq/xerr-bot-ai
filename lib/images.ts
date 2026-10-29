@@ -176,6 +176,12 @@ const REAL_PHOTOS: Record<string, Record<string, string | [string, string][]>> =
     "พลาสติก ABS": "1IQTrmeUac5XSIFAetusDJah0hv9w13Mt",
     "ไร้ขอบ": "1XXIXmd7_CxwrLh8UiaPFcc5ZGFSNWxlq",
     "รถตู้/บรรทุก": "1eto3c7NCL1vlSSs2gFOEWj71MiF-hqGV",
+    "กรอบป้ายภาษี พรบ.": "/products/tax-car.jpg",
+  },
+  // ป้ายภาษี: รูปเก็บในบอท (public/products) ไม่ได้อยู่ใน Drive — จักรส่งมาในแชท 29 ต.ค. 2026
+  "กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ": {
+    "รถยนต์": "/products/tax-car.jpg",
+    "มอเตอร์ไซค์": "/products/tax-moto.jpg",
   },
   "อะคริลิค ขั้น 1 เลือกสี": {
     "สีดำ มีเส้นขอบ": "1ObHYDZaanBdC3UhtulEtHT41kmFgfrGh",
@@ -261,7 +267,8 @@ export const categoryPhoto = (name: string): string | undefined => {
   return typeof id === "string" ? driveLink(id) : undefined;
 };
 
-const driveLink = (id: string) => `https://drive.google.com/file/d/${id}/view`;
+// id ไฟล์ Drive → ลิงก์ Drive · "/products/..." → รูปที่เก็บในบอทเอง
+const driveLink = (id: string) => (id.startsWith("/") ? `${baseUrl()}${id}` : `https://drive.google.com/file/d/${id}/view`);
 
 function withRealPhotos(set: ImageSet): ImageSet {
   const photos = REAL_PHOTOS[set.name];
