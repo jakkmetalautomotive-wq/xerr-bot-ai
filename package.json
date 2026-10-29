@@ -1,0 +1,27 @@
+{
+  "name": "xerr-bot-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "บอท LINE OA ของ XERR AUTOTEAM — ตอบลูกค้าด้วย Gemini จาก FAQ ใน Google Sheet",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^2.31.0",
+    "@line/bot-sdk": "^11.4.0",
+    "@vercel/functions": "^3.10.4",
+    "next": "^14.2.35",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "typescript": "^5.9.3"
+  }
+}
