@@ -1,4 +1,5 @@
-// เช็คสุขภาพบอท: /api/health (เช็ค Sheet) · /api/health?gemini=1 (เช็ค Gemini ด้วย — จำผลไว้ 60 วิ กันกดรัว)
+// เช็คสุขภาพบอท: /api/health (เช็ค Sheet — เปิดสาธารณะ ไม่กินโควตา)
+// /api/health?gemini=1&key=HEALTH_KEY (เช็ค Gemini — ต้องมี key · จำผลไว้ 60 วิ กันกดรัว · &full=1 ถามจริงด้วย FAQ เต็ม)
 // ไม่แสดงคีย์ใด ๆ — แสดงแค่ผ่าน/ไม่ผ่าน + ข้อความ error
 import { GoogleGenAI } from "@google/genai";
 import { getFaq, sheetUrls } from "@/lib/sheet.ts";
@@ -24,7 +25,12 @@ export async function GET(req: Request) {
   }
 
   const params = new URL(req.url).searchParams;
-  if (params.get("gemini") === "1") {
+  // เช็ค Gemini กินโควตาคีย์ → ต้องตั้ง HEALTH_KEY ใน Vercel แล้วแนบ ?key=... ให้ตรง (ไม่ตั้ง = ปิดไว้)
+  const healthKey = process.env.HEALTH_KEY ?? "";
+  const keyOk = healthKey.length >= 8 && params.get("key") === healthKey;
+  if (params.get("gemini") === "1" && !keyOk) {
+    out.gemini = { ok: null, note: healthKey ? "ต้องแนบ key ให้ถูกต้อง" : "ปิดอยู่ (ตั้ง HEALTH_KEY ใน Vercel เพื่อเปิด)" };
+  } else if (params.get("gemini") === "1") {
     // ?model=gemini-xxx ไว้ลองรุ่นอื่น (รับเฉพาะชื่อที่ขึ้นต้นด้วย gemini-)
     const model = /^gemini-[a-z0-9.-]+$/.test(params.get("model") ?? "") ? params.get("model")! : MODEL;
     out.model = model;
