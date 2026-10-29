@@ -1,10 +1,12 @@
 // เรียก Gemini ตอบลูกค้า
-import { GoogleGenAI, FinishReason, Type, type Content } from "@google/genai";
+import { GoogleGenAI, FinishReason, ThinkingLevel, Type, type Content } from "@google/genai";
 import { buildSystemPrompt, wrapQuestion } from "./prompt.ts";
 import { DEFAULT_REPLY } from "./shop.ts";
 
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-const TIMEOUT_MS = 8_000; // LINE ต้องตอบภายใน ~10 วินาที
+const TIMEOUT_MS = 20_000; // webhook ตอบ LINE ทันทีแล้ว (waitUntil) — รอ Gemini ได้นานขึ้น ถ้า reply token หมดอายุจะส่งแบบ push แทน
+// ระดับการคิด: LOW เร็วพอสำหรับตอบแชท (เปลี่ยนได้ด้วย GEMINI_THINKING = MINIMAL / LOW / MEDIUM / HIGH)
+export const THINKING = (Object.values(ThinkingLevel) as string[]).includes(process.env.GEMINI_THINKING ?? "") ? (process.env.GEMINI_THINKING as ThinkingLevel) : ThinkingLevel.LOW;
 
 export type BotAnswer = { reply: string; needsAdmin: boolean; adminNote: string };
 
@@ -33,14 +35,16 @@ export async function askGemini(
   question: string,
   clockLabel: string,
   generate: GenerateFn = defaultGenerate(),
+  model: string = MODEL,
 ): Promise<BotAnswer> {
   const res = await generate({
-    model: MODEL,
+    model,
     contents: [...history, { role: "user", parts: [{ text: wrapQuestion(question) }] }],
     config: {
       systemInstruction: buildSystemPrompt(faq, clockLabel),
       temperature: 1.0, // ค่าเริ่มต้นของ Gemini 3.x — อย่าลด
       maxOutputTokens: 1024, // รวม thinking + คำตอบ
+      thinkingConfig: { thinkingLevel: THINKING },
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
       httpOptions: { timeout: TIMEOUT_MS },
