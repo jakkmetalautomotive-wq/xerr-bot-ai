@@ -30,7 +30,7 @@ test("ปุ่มเมนู 🛒 สั่งซื้อ → การ์ด
   const { line, sent } = fakeLine();
   await handleEvent(msgEvent(MENU.order), { line, getImageSets: async () => sampleSets(), ask: noAsk });
   const bubbles = sent[0].texts[1].contents.contents;
-  assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].text), ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "ไร้ขอบ", "รถตู้/บรรทุก", "กรอบป้ายภาษี พรบ."]);
+  assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].contents[1].text), ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "ไร้ขอบ", "รถตู้/บรรทุก", "กรอบป้ายภาษี พรบ."]);
   assert.ok(bubbles.every((b: any) => /^https:\/\/.+\.png$/.test(b.hero.url)));
 });
 
@@ -138,7 +138,7 @@ test("ปุ่มเมนู 🔧 วิธีติดตั้ง → กา
   const { line, sent } = fakeLine();
   await handleEvent(msgEvent(MENU.install), { line, getImageSets: async () => sampleSets(), ask: noAsk });
   const bubbles = sent[0].texts[1].contents.contents;
-  assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].text), [
+  assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].contents[1].text), [
     "อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "ไร้ขอบ", "รถตู้/บรรทุก", "ป้ายภาษี พรบ. รถยนต์", "ป้ายภาษี พรบ. มอเตอร์ไซค์",
   ]);
   assert.ok(bubbles.every((b: any) => b.footer.contents[0].action.type === "uri" && /^https:\/\/www\.youtube\.com\/shorts\//.test(b.footer.contents[0].action.uri)));
@@ -169,7 +169,7 @@ test("ปุ่มเมนู ⭐ รีวิวสินค้า → กา�
   await handleEvent(msgEvent(MENU.review), { line, getImageSets: async () => sampleSets(), ask: noAsk });
   assert.match(sent[0].texts[0], /รีวิวจากลูกค้าจริง/);
   const bubbles = sent[0].texts[1].contents.contents;
-  assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].text), ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "รถตู้/บรรทุก"]);
+  assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].contents[1].text), ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "รถตู้/บรรทุก"]);
   assert.deepEqual(bubbles.map((b: any) => b.footer.contents[0].action.uri), [
     "https://canva.link/cm14wzc6vnbed6p", "https://canva.link/ve2f6ufpe1z3dx9", "https://canva.link/pny4wokozswx4dq",
     "https://canva.link/2sz7a5wfwb41g3n", "https://canva.link/59ohj9ig99g7t1w",
@@ -195,4 +195,19 @@ test("Rich Menu 2 แถว × 3 ช่อง: 5 ปุ่มตรงตำแ�
     [MENU.review, 0, 843, 833, 843], [MENU.admin, 833, 843, 834, 843],
   ]);
   assert.ok(req.areas.every((a: any) => (a.action as any).label.length <= 20));
+});
+
+test("การ์ดประเภทสินค้า: แถว 1 แบบที่ N + ชื่อ · แถว 2 ราคาปกติขีดฆ่า · แถว 3 ราคาขายตัวใหญ่ · ไม่มีแถวรายละเอียด", () => {
+  const bubble = (buildCarousel(setNamed(CATEGORY_SET)).contents as any).contents[0];
+  const [, title, normal, price, ...rest] = bubble.body.contents;
+  const spans = (n: any) => n.contents.map((s: any) => [s.text, s.size, s.decoration ?? ""]);
+  assert.deepEqual(spans(title), [["แบบที่ 1  ", "xs", ""], ["อะคริลิค", "xl", ""]]);
+  assert.deepEqual(spans(normal), [["ราคาปกติ ", "sm", ""], ["550.-", "sm", "line-through"]]);
+  assert.deepEqual(spans(price), [["399.- / 419.-", "xxl", ""]]);
+  assert.equal(rest.length, 0);
+  // หมายเหตุในวงเล็บท้ายราคา → ตัวเล็ก
+  const steel = (buildCarousel(setNamed(CATEGORY_SET)).contents as any).contents[2].body.contents[3];
+  assert.deepEqual(spans(steel), [["249.- / 299.-", "xxl", ""], [" (มีแผ่นใส)", "sm", ""]]);
+  const parsed = parseImageSets("ชุดรูป,ชื่อแบบ,ราคา,ลิงก์รูป,ราคาปกติ\nx,ABS,199.-,,350.-");
+  assert.equal(parsed[0].items[0].normal, "350.-");
 });

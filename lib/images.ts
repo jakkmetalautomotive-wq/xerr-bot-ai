@@ -1,5 +1,5 @@
 // ชุดรูปสินค้า → การ์ดปัดดูใน LINE (Flex carousel) พร้อมปุ่ม "เลือกแบบที่ N"
-// รูปมาจากแท็บ "รูปสินค้า" ใน Google Sheet: ชุดรูป | ลำดับ | ชื่อแบบ | ราคา | ลิงก์รูป | รายละเอียด | ลิงก์คลิป (ไม่บังคับ)
+// รูปมาจากแท็บ "รูปสินค้า" ใน Google Sheet: ชุดรูป | ลำดับ | ชื่อแบบ | ราคา | ลิงก์รูป | รายละเอียด | ลิงก์คลิป, ราคาปกติ (ไม่บังคับ)
 // ชุดที่ไม่ใส่ลิงก์รูปเลย = ตัวเลือกง่าย → ส่งเป็นปุ่มด่วน (quick reply) ใต้ข้อความ
 // ยังไม่มีแท็บนี้ → ใช้ชุดตัวอย่างในโค้ด (รูปสีพื้นชั่วคราว)
 import { parseCsv, expandSheetUrl } from "./sheet.ts";
@@ -8,7 +8,7 @@ export const IMAGE_TAB = "รูปสินค้า";
 const CACHE_MS = 60_000;
 const MAX_CARDS = 12; // LINE carousel ได้สูงสุด 12 ใบ
 
-export type ImageItem = { order: number; name: string; price: string; image: string; detail: string; link?: string };
+export type ImageItem = { order: number; name: string; price: string; image: string; detail: string; link?: string; normal?: string };
 export type ImageSet = { name: string; items: ImageItem[] };
 export type FlexOut = { type: "flex"; altText: string; contents: Record<string, unknown> };
 
@@ -85,8 +85,8 @@ export function reviewSet(links: Record<string, string> = {}): ImageSet {
 // ชุดที่ไม่มีรูปเลยสักแบบ = ตัวเลือกง่าย → ส่งเป็นปุ่มด่วนใต้ข้อความแทนการ์ด
 export function sampleSets(): ImageSet[] {
   const img = (f: string) => `${baseUrl()}/samples/${f}`;
-  const items = (rows: [name: string, price: string, image: string, detail: string][]): ImageItem[] =>
-    rows.map(([name, price, image, detail], i) => ({ order: i + 1, name, price, image: image && img(image), detail }));
+  const items = (rows: [name: string, price: string, image: string, detail: string, normal?: string][]): ImageItem[] =>
+    rows.map(([name, price, image, detail, normal], i) => ({ order: i + 1, name, price, image: image && img(image), detail, ...(normal ? { normal } : {}) }));
   const acrylicPrice = "สั้น-สั้น 399.- / สั้น-ยาว, ยาว-ยาว 419.-";
   const shapes = (detail: string) => items([
     ["สี่เหลี่ยมขอบใหญ่", "", "shape-rect-wide.png", `35.5 × 15.5 ซม. · ${detail}`],
@@ -98,13 +98,14 @@ export function sampleSets(): ImageSet[] {
     {
       name: CATEGORY_SET,
       items: items([
-        ["อะคริลิค", "399.- / 419.-", "cat-acrylic.png", "ปกติ 550.- · สกรีนสีด้านใน ไม่ซีด · 3 ขนาด"],
-        ["สแตนเลส", "279.- / 319.- (มีแผ่นใส)", "cat-stainless.png", "ปกติ 450.- · สแตนเลส 100% ไม่เป็นสนิม · 3 ทรง"],
-        ["เหล็กพ่นสี", "249.- / 299.- (มีแผ่นใส)", "cat-steel.png", "ปกติ 390.- · สีขาว / ดำ · 3 ทรง"],
-        ["พลาสติก ABS", "199.-", "cat-abs.png", "ปกติ 350.- · กิ๊ปล็อค 34.5 × 17 ซม. เหมาะป้ายรุ่นใหม่"],
-        ["ไร้ขอบ", "199.-", "cat-undercut.png", "ปกติ 250.- · บางเฉียบ 33 × 14.5 ซม. กาว 3M แท้"],
-        ["รถตู้/บรรทุก", "399.-", "cat-truck.png", "ปกติ 590.- · ป้ายทะเบียน 30 · 45 × 24 ซม."],
-        ["กรอบป้ายภาษี พรบ.", "69.- / 129.-", "cat-tax.png", "รถยนต์ 69.- · มอเตอร์ไซค์ 129.- · ใช้ซ้ำได้"],
+        // ราคาปกติตามแท็บสินค้าและราคา (ขีดฆ่าบนการ์ด) · จักรขอเอาแถวรายละเอียดออก 29 ต.ค. 2026
+        ["อะคริลิค", "399.- / 419.-", "cat-acrylic.png", "", "550.-"],
+        ["สแตนเลส", "279.- / 319.- (มีแผ่นใส)", "cat-stainless.png", "", "450.-"],
+        ["เหล็กพ่นสี", "249.- / 299.- (มีแผ่นใส)", "cat-steel.png", "", "390.-"],
+        ["พลาสติก ABS", "199.-", "cat-abs.png", "", "350.-"],
+        ["ไร้ขอบ", "199.-", "cat-undercut.png", "", "250.-"],
+        ["รถตู้/บรรทุก", "399.-", "cat-truck.png", "", "590.-"],
+        ["กรอบป้ายภาษี พรบ.", "69.- / 129.-", "cat-tax.png", "", "99.- / 189.-"],
       ]),
     },
     {
@@ -217,7 +218,7 @@ export function lineImageUrl(url: string): string {
 export function parseImageSets(csv: string): ImageSet[] {
   const [header, ...rows] = parseCsv(csv);
   const col = (name: string) => header?.findIndex((h) => h.trim() === name) ?? -1;
-  const c = { set: col("ชุดรูป"), order: col("ลำดับ"), name: col("ชื่อแบบ"), price: col("ราคา"), image: col("ลิงก์รูป"), detail: col("รายละเอียด"), link: col("ลิงก์คลิป") };
+  const c = { set: col("ชุดรูป"), order: col("ลำดับ"), name: col("ชื่อแบบ"), price: col("ราคา"), image: col("ลิงก์รูป"), detail: col("รายละเอียด"), link: col("ลิงก์คลิป"), normal: col("ราคาปกติ") };
   // gviz คืนแท็บแรกถ้าหาแท็บไม่เจอ → เช็คหัวคอลัมน์ให้แน่ใจว่าเป็นแท็บรูปจริง
   if (c.set < 0 || c.name < 0 || c.image < 0) return [];
   const sets = new Map<string, ImageItem[]>();
@@ -234,6 +235,7 @@ export function parseImageSets(csv: string): ImageSet[] {
       image,
       detail: c.detail >= 0 ? r[c.detail]?.trim() ?? "" : "",
       ...(/^https:\/\//.test(link) ? { link } : {}),
+      ...(c.normal >= 0 && r[c.normal]?.trim() ? { normal: r[c.normal].trim() } : {}),
     });
     sets.set(set, items);
   }
@@ -290,20 +292,77 @@ export function choiceText(set: ImageSet, item: ImageItem, picked: string[] = []
   return (picked.length ? `${base} | เลือกแล้ว: ${picked.join(", ")}` : base).slice(0, 300); // LINE จำกัด 300 ตัวอักษร
 }
 
+// โทนการ์ดตาม Brand.md: ดำ #111111 · ขาว · ส้ม #FF6A00 (ปุ่ม/ไฮไลต์) — พื้นไล่เฉดดำ + แถบส้มบางแบบเส้นรถแข่ง
+export const CARD_THEME = {
+  bgTop: "#1C1C1C",
+  bgBottom: "#0A0A0A",
+  accent: "#FF6A00",
+  title: "#FFFFFF",
+  muted: "#9A9A9A",
+  label: "#FF8A3D",
+};
+
+// แถว 1: "แบบที่ N" + ชื่อสินค้า บรรทัดเดียวกัน (ขนาดเดิมของแต่ละส่วน)
+function titleLine(item: ImageItem) {
+  const t = CARD_THEME;
+  return {
+    type: "text",
+    wrap: true,
+    margin: "md",
+    contents: [
+      { type: "span", text: `แบบที่ ${item.order}  `, size: "xs", color: t.label, weight: "bold" },
+      { type: "span", text: item.name, size: "xl", color: t.title, weight: "bold" },
+    ],
+  };
+}
+
+// แถว 3: ราคาขาย ส้มตัวใหญ่ · หมายเหตุในวงเล็บท้ายราคา เช่น "(มีแผ่นใส)" ตัวเล็กลง จะได้ไม่ตัดบรรทัดกลางคำ
+function priceLine(price: string) {
+  const t = CARD_THEME;
+  const [, main, note] = price.match(/^(.*?)\s*(\([^()]*\))$/) ?? [, price, ""];
+  return {
+    type: "text",
+    wrap: true,
+    contents: [
+      { type: "span", text: main, size: "xxl", color: t.accent, weight: "bold" },
+      ...(note ? [{ type: "span", text: ` ${note}`, size: "sm", color: t.accent }] : []),
+    ],
+  };
+}
+
+// แถว 2: "ราคาปกติ" + ตัวเลขขีดฆ่า
+function normalLine(normal: string) {
+  const t = CARD_THEME;
+  return {
+    type: "text",
+    wrap: true,
+    contents: [
+      { type: "span", text: "ราคาปกติ ", size: "sm", color: t.muted },
+      { type: "span", text: normal, size: "sm", color: t.muted, decoration: "line-through" },
+    ],
+  };
+}
+
 export function buildCarousel(set: ImageSet, picked: string[] = []): FlexOut {
+  const t = CARD_THEME;
   const bubbles = set.items.map((item) => ({
     type: "bubble",
     size: "kilo",
+    styles: { hero: { backgroundColor: t.bgBottom }, body: { backgroundColor: t.bgTop }, footer: { backgroundColor: t.bgBottom } },
     ...(item.image ? { hero: { type: "image", url: lineImageUrl(item.image), size: "full", aspectRatio: "20:13", aspectMode: "cover" } } : {}),
     body: {
       type: "box",
       layout: "vertical",
       spacing: "sm",
+      paddingTop: "lg",
+      background: { type: "linearGradient", angle: "0deg", startColor: t.bgBottom, endColor: t.bgTop },
       contents: [
-        { type: "text", text: `แบบที่ ${item.order}`, size: "xs", color: "#888888" },
-        { type: "text", text: item.name, weight: "bold", size: "md", wrap: true },
-        ...(item.price ? [{ type: "text", text: item.price, size: "sm", color: "#D32F2F", wrap: true }] : []),
-        ...(item.detail ? [{ type: "text", text: item.detail, size: "xs", color: "#666666", wrap: true }] : []),
+        { type: "box", layout: "vertical", contents: [], width: "36px", height: "3px", backgroundColor: t.accent, cornerRadius: "2px" },
+        // แถว: แบบที่ N + ชื่อ → ราคาปกติ (ขีดฆ่า) → ราคาขาย (ส้ม ตัวใหญ่) → รายละเอียด
+        titleLine(item),
+        ...(item.normal ? [normalLine(item.normal)] : []),
+        ...(item.price ? [priceLine(item.price)] : []),
+        ...(item.detail ? [{ type: "text", text: item.detail, size: "sm", color: t.muted, wrap: true }] : []),
       ],
     },
     // ชุดลิงก์ (วิธีติดตั้ง / รีวิว): แบบที่ไม่มีลิงก์ อ่านรายละเอียดบนการ์ดได้เลย ไม่ต้องมีปุ่ม
@@ -316,7 +375,7 @@ export function buildCarousel(set: ImageSet, picked: string[] = []): FlexOut {
               {
                 type: "button",
                 style: "primary",
-                color: item.link ? "#D32F2F" : "#1F2937",
+                color: t.accent,
                 height: "sm",
                 action: item.link
                   ? { type: "uri", label: set.name === REVIEW_SET ? REVIEW_BUTTON : INSTALL_BUTTON, uri: item.link }
