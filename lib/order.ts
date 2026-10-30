@@ -2,7 +2,7 @@
 // ข้อมูลออเดอร์ติดไปกับปุ่ม / ลิงก์แบบฟอร์ม / ปุ่มของแอดมิน ทุกขั้น
 import crypto from "node:crypto";
 import { stepOf, CATEGORY_SET, CARD_THEME, baseUrl, type ImageSet } from "./images.ts";
-import { SHIPPING, TAX_CAR } from "./shop.ts";
+import { SHIPPING, TAX_CAR, REVIEW_REMINDER } from "./shop.ts";
 
 export type OrderDraft = { code: string; product: string; picks: string[]; tax: boolean };
 export type PricedOrder = OrderDraft & {
@@ -116,7 +116,8 @@ export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: b
 // ---------- ปุ่ม (postback) ----------
 export type Postback =
   | { k: "tax"; y: 0 | 1; p: string; s: string[] }
-  | { k: "adm"; a: "ok" | "bad"; c: string; u: string; t: number };
+  | { k: "adm"; a: "ok" | "bad"; c: string; u: string; t: number }
+  | { k: "trk"; c: string };
 
 export function encodePostback(p: Postback): string {
   const s = JSON.stringify(p);
@@ -129,8 +130,54 @@ export function decodePostback(data: string): Postback | null {
     const p = JSON.parse(data);
     if (p?.k === "tax" && Array.isArray(p.s) && typeof p.p === "string") return p;
     if (p?.k === "adm" && (p.a === "ok" || p.a === "bad") && typeof p.c === "string" && typeof p.u === "string") return p;
+    if (p?.k === "trk" && typeof p.c === "string") return p;
   } catch {}
   return null;
+}
+
+// แอดมินยืนยันรับเงิน → การ์ดถึงลูกค้า + ปุ่ม "📦 ขอเลขพัสดุ" (อยู่ในการ์ด กดได้ตลอด ไม่หายแบบปุ่มด่วน)
+export const TRACKING_READY_TEXT = "📦 เลขพัสดุเช็คได้หลัง 20:00 น. ของวันที่จัดส่ง กดปุ่มด้านล่างได้เลยครับ";
+export function paidConfirmMessage(code: string, total: number) {
+  const t = CARD_THEME;
+  const lines = [
+    `ได้รับยอดชำระ ${baht(total)}.- แล้วครับ ✅ ออเดอร์ ${code}`,
+    "จัดส่ง SPX รอบถัดไป (ตัดรอบเที่ยง จันทร์–เสาร์) ขอบคุณที่อุดหนุนครับ 🙏",
+  ];
+  return {
+    type: "flex" as const,
+    altText: `${lines.join(" ")} ${TRACKING_READY_TEXT}`.slice(0, 400),
+    contents: {
+      type: "bubble",
+      size: "mega",
+      styles: { body: { backgroundColor: t.bgTop }, footer: { backgroundColor: t.bgBottom } },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        background: { type: "linearGradient", angle: "0deg", startColor: t.bgBottom, endColor: t.bgTop },
+        contents: [
+          { type: "text", text: lines[0], color: t.title, size: "md", weight: "bold", wrap: true },
+          { type: "text", text: lines[1], color: t.title, size: "sm", wrap: true },
+          { type: "separator", color: "#333333" },
+          { type: "text", text: TRACKING_READY_TEXT, color: t.accent, size: "sm", weight: "bold", wrap: true },
+          { type: "text", text: REVIEW_REMINDER, color: t.muted, size: "sm", wrap: true },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [{
+          type: "box",
+          layout: "vertical",
+          backgroundColor: "#FFFFFF",
+          cornerRadius: "10px",
+          paddingAll: "14px",
+          action: { type: "postback", label: "ขอเลขพัสดุ", data: encodePostback({ k: "trk", c: code }), displayText: `📦 ขอเลขพัสดุ (${code})` },
+          contents: [{ type: "text", text: "📦 ขอเลขพัสดุ", size: "lg", weight: "bold", color: "#111111", align: "center" }],
+        }],
+      },
+    },
+  };
 }
 
 // ชวนเพิ่มกรอบป้ายภาษี — การ์ดโทนร้าน + ปุ่มใหญ่พื้นขาวตัวดำ (ปุ่มด่วนของ LINE ปรับขนาด/สีไม่ได้)

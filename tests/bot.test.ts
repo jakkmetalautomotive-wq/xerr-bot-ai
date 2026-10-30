@@ -426,7 +426,7 @@ test("ปุ่มแอดมิน: แอดมินกด ✅ → แจ้
   const a = fakeLine();
   await handleEvent(postbackEvent(data, "UADMIN"), { line: a.line, adminUserId: "UADMIN" });
   assert.equal(a.sent[0].to, "UCUST");
-  assert.match(a.sent[0].texts[0], /ได้รับยอดชำระ 488\.- แล้วครับ ✅ ออเดอร์ XR-AB12/);
+  assert.match(a.sent[0].texts[0].altText, /ได้รับยอดชำระ 488\.- แล้วครับ ✅ ออเดอร์ XR-AB12/);
   assert.match(a.sent[1].texts[0], /ยืนยันออเดอร์ XR-AB12 แล้ว/);
   const b = fakeLine();
   await handleEvent(postbackEvent(data, "UHACKER"), { line: b.line, adminUserId: "UADMIN" });

@@ -13,9 +13,10 @@ const SHEET_NAME = 'ออเดอร์ LINE';
 const TZ = 'Asia/Bangkok';
 const HEADERS = [
   'วันที่', 'รหัสออเดอร์', 'สถานะ', 'สินค้า', 'ตัวเลือก', 'ป้ายภาษี พรบ.', 'ราคาสินค้า', 'ราคาป้ายภาษี', 'ค่าส่ง', 'ยอดชำระ',
-  'ชื่อผู้รับ', 'เบอร์', 'ที่อยู่', 'รหัสไปรษณีย์', 'หมายเหตุ', 'ชื่อ LINE', 'LINE user ID', 'อัปเดตสถานะเมื่อ',
+  'ชื่อผู้รับ', 'เบอร์', 'ที่อยู่', 'รหัสไปรษณีย์', 'หมายเหตุ', 'ชื่อ LINE', 'LINE user ID', 'อัปเดตสถานะเมื่อ', 'เลขพัสดุ',
 ];
-const COL_CODE = 2, COL_STATUS = 3, COL_UPDATED = 18;
+const COL_CODE = 2, COL_STATUS = 3, COL_LINE_ID = 17, COL_UPDATED = 18, COL_TRACKING = 19;
+const PAID = ['ชำระแล้ว', 'จัดส่งแล้ว']; // นับเป็นยอดขาย
 
 function doPost(e) {
   let data;
@@ -42,6 +43,22 @@ function doPost(e) {
       return reply({ ok: true });
     }
     if (data.action === 'summary') return reply(weeklySummary_(sh, data.days || 7));
+    // แอดมินใส่เลขพัสดุ (ผ่านแชทบอท) → คอลัมน์ เลขพัสดุ + สถานะ จัดส่งแล้ว
+    if (data.action === 'set_tracking') {
+      const row = findRow_(sh, data.code);
+      if (!row) return reply({ ok: false, error: 'not found' });
+      sh.getRange(row, COL_TRACKING).setValue("'" + data.tracking);
+      sh.getRange(row, COL_STATUS).setValue('จัดส่งแล้ว');
+      sh.getRange(row, COL_UPDATED).setValue(now);
+      return reply({ ok: true });
+    }
+    // ลูกค้ากดปุ่ม ขอเลขพัสดุ → ส่งเลข + LINE user ID ของออเดอร์ (บอทเช็คว่าเป็นเจ้าของออเดอร์)
+    if (data.action === 'get_tracking') {
+      const row = findRow_(sh, data.code);
+      if (!row) return reply({ ok: true, found: false });
+      const r = sh.getRange(row, 1, 1, COL_TRACKING).getValues()[0];
+      return reply({ ok: true, found: true, tracking: String(r[COL_TRACKING - 1] || '').replace(/^'/, '').trim(), lineUserId: String(r[COL_LINE_ID - 1] || ''), status: String(r[COL_STATUS - 1]) });
+    }
     if (data.action === 'status') {
       const row = findRow_(sh, data.code);
       if (row) {
@@ -81,6 +98,8 @@ function sheet_() {
     sh.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
     sh.getRange('G:J').setNumberFormat('#,##0');
   }
+  // ชีทที่สร้างก่อนมีคอลัมน์ เลขพัสดุ → เติมหัวคอลัมน์ให้
+  if (sh.getRange(1, COL_TRACKING).getValue() !== 'เลขพัสดุ') sh.getRange(1, COL_TRACKING).setValue('เลขพัสดุ');
   return sh;
 }
 
@@ -101,7 +120,7 @@ function weeklySummary_(sh, days) {
     const status = String(r[COL_STATUS - 1]);
     if (status === 'รอตรวจสลิป') s.waiting++;
     if (status === 'ยอดไม่ตรง') s.mismatch++;
-    if (status !== 'ชำระแล้ว') return;
+    if (PAID.indexOf(status) < 0) return;
     const total = Number(r[9]) || 0;
     s.paidCount++;
     s.paidTotal += total;

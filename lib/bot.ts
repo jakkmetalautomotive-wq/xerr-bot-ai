@@ -9,11 +9,11 @@ import {
 } from "./images.ts";
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer, REVIEW_PROMO, REVIEW_REMINDER } from "./shop.ts";
 import {
-  priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage,
+  priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage, paidConfirmMessage,
   decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
 } from "./order.ts";
 import { slipImageMessage } from "./slip.ts";
-import { logOrder, statusEvent, ORDER_STATUS, type OrderLogEvent } from "./orderlog.ts";
+import { logOrder, statusEvent, ORDER_STATUS, setTracking, getTracking, parseTrackingLines, type OrderLogEvent, type TrackingInfo } from "./orderlog.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
 export type OutMessage = string | FlexOut | { type: string; [key: string]: unknown };
@@ -40,6 +40,9 @@ export interface BotDeps {
   logOrder?: (event: OrderLogEvent) => Promise<boolean>;
   // ต่อท้ายคำตอบแรกของลูกค้าแต่ละคนด้วยโปรรีวิว (เปิดใน webhook จริง)
   reviewPromo?: boolean;
+  // เลขพัสดุในชีทออเดอร์ (ทดสอบสลับเป็นตัวปลอมได้)
+  setTracking?: (code: string, tracking: string) => Promise<boolean>;
+  getTracking?: (code: string) => Promise<TrackingInfo | null>;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
@@ -55,6 +58,24 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
 
   if (msg.type === "text" && msg.text.trim().toLowerCase() === "myid") {
     await deps.line.reply(replyToken, [userId]);
+    return;
+  }
+
+  // แอดมินพิมพ์เลขพัสดุ: บรรทัดละ "XR-ABCD SPXTH0123456789" → ลงชีท (ลูกค้ากดปุ่ม 📦 ขอเลขพัสดุ ดูเอง)
+  const trackingLines = msg.type === "text" && userId === deps.adminUserId ? parseTrackingLines(msg.text) : null;
+  if (trackingLines) {
+    const set = deps.setTracking ?? setTracking;
+    const results = await Promise.all(trackingLines.map(async (t) => ({ ...t, ok: await set(t.code, t.tracking) })));
+    const ok = results.filter((r) => r.ok);
+    const bad = results.filter((r) => !r.ok);
+    await deps.line.reply(replyToken, [
+      [
+        `📦 บันทึกเลขพัสดุแล้ว ${ok.length}/${results.length} ออเดอร์`,
+        ...ok.map((r) => `✓ ${r.code} ${r.tracking}`),
+        ...bad.map((r) => `✗ ${r.code} — ไม่พบออเดอร์ในชีท / ชีทล่ม`),
+        ...(ok.length ? ["ลูกค้ากดปุ่ม \"📦 ขอเลขพัสดุ\" ในการ์ดยืนยันเพื่อดูเลขได้เลย"] : []),
+      ].join("\n"),
+    ]);
     return;
   }
 
@@ -196,12 +217,31 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
     return;
   }
 
+  // ลูกค้ากด "📦 ขอเลขพัสดุ" → ค้นในชีทออเดอร์ (ตอบด้วย reply ไม่กินโควตา push) · ต้องเป็นเจ้าของออเดอร์
+  if (pb.k === "trk") {
+    const info = await (deps.getTracking ?? getTracking)(pb.c);
+    const mine = info?.found && (!info.lineUserId || info.lineUserId === userId);
+    if (mine && info!.tracking) {
+      await send(deps, replyToken, userId, [`📦 ออเดอร์ ${pb.c}\nเลขพัสดุ SPX: ${info!.tracking}\nเช็คสถานะได้ในแอป SPX Express หรือเว็บ spx.co.th ครับ 🙏`]);
+      return;
+    }
+    if (info && !mine && info.found) return; // ออเดอร์ของคนอื่น → ไม่ตอบ
+    const { minutes } = bangkokClock();
+    if (info && minutes < 20 * 60) {
+      await send(deps, replyToken, userId, [`ออเดอร์ ${pb.c} ยังไม่มีเลขพัสดุครับ 🙏\nเลขพัสดุเช็คได้หลัง 20:00 น. ของวันที่จัดส่ง ลองกดอีกครั้งหลัง 2 ทุ่มนะครับ`]);
+      return;
+    }
+    await send(deps, replyToken, userId, [`ออเดอร์ ${pb.c} ยังไม่มีเลขพัสดุในระบบครับ แจ้งแอดมินให้แล้ว เดี๋ยวส่งเลขให้นะครับ 🙏`]);
+    await notifyAdmin(deps, userId, `ลูกค้าขอเลขพัสดุ ออเดอร์ ${pb.c} — ${info ? "ยังไม่ได้ใส่เลข" : "เช็คชีทออเดอร์ไม่ได้"} (พิมพ์ "${pb.c} เลขพัสดุ" ในแชทนี้เพื่อใส่เลข)`);
+    return;
+  }
+
   // ปุ่มของแอดมิน — รับเฉพาะจากแอดมินจริง
   if (pb.k === "adm") {
     if (!deps.adminUserId || userId !== deps.adminUserId) return;
     const log = deps.logOrder ?? logOrder;
     if (pb.a === "ok") {
-      await deps.line.push(pb.u, [`ได้รับยอดชำระ ${pb.t.toLocaleString("en-US")}.- แล้วครับ ✅ ออเดอร์ ${pb.c}\nจัดส่ง SPX รอบถัดไป (ตัดรอบเที่ยง จันทร์–เสาร์) ขอบคุณที่อุดหนุนครับ 🙏\n\n${REVIEW_REMINDER}`]);
+      await deps.line.push(pb.u, [paidConfirmMessage(pb.c, pb.t)]);
       const logged = await log(statusEvent(pb.c, ORDER_STATUS.paid));
       await deps.line.reply(replyToken, [`✅ ยืนยันออเดอร์ ${pb.c} แล้ว · แจ้งลูกค้าแล้ว${logged ? " · ลงชีทแล้ว" : ""}`]);
     } else {

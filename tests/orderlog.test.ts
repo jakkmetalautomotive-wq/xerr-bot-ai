@@ -82,16 +82,61 @@ test("ลูกค้าทักครั้งแรก → ต่อท้า
   _resetGreeted();
 });
 
-test("แอดมินกด ✅ → ข้อความยืนยันถึงลูกค้ามีเตือนรีวิวรับส่วนลด 50.- ออเดอร์ถัดไป", async () => {
+test("แอดมินกด ✅ → การ์ดยืนยันถึงลูกค้า: เลขพัสดุหลัง 2 ทุ่ม + เตือนรีวิว + ปุ่ม 📦 ขอเลขพัสดุ", async () => {
   const pushed: any[] = [];
   const line: LinePort = { reply: async () => {}, push: async (to, texts) => void pushed.push({ to, texts }), showLoading: async () => {}, displayName: async () => "" };
   await handleEvent({
     type: "postback", source: { type: "user", userId: "UADMIN" }, replyToken: "rt",
     postback: { data: encodePostback({ k: "adm", a: "ok", c: "XR-AB12", u: "UCUST", t: 309 }) },
   } as any, { line, adminUserId: "UADMIN", logOrder: async () => true });
-  const toCustomer = pushed.find((p) => p.to === "UCUST").texts[0];
-  assert.match(toCustomer, /ได้รับยอดชำระ 309\.- แล้วครับ ✅/);
-  assert.match(toCustomer, /อย่าลืมรีวิว.*ส่วนลด 50\.- ในออเดอร์ถัดไป/);
+  const card = pushed.find((p) => p.to === "UCUST").texts[0];
+  const texts = card.contents.body.contents.map((c: any) => c.text ?? "").join("\n");
+  assert.match(texts, /ได้รับยอดชำระ 309\.- แล้วครับ ✅ ออเดอร์ XR-AB12/);
+  assert.match(texts, /เลขพัสดุเช็คได้หลัง 20:00 น\./);
+  assert.match(texts, /อย่าลืมรีวิว.*ส่วนลด 50\.- ในออเดอร์ถัดไป/);
+  const btn = card.contents.footer.contents[0];
+  assert.equal(btn.contents[0].text, "📦 ขอเลขพัสดุ");
+  assert.deepEqual(JSON.parse(btn.action.data), { k: "trk", c: "XR-AB12" });
+});
+
+test("ลูกค้ากด 📦 ขอเลขพัสดุ: มีเลข → ส่งเลข · ไม่มีเลข → บอกหลัง 2 ทุ่ม / แจ้งแอดมิน · ออเดอร์คนอื่น → ไม่ตอบ", async () => {
+  const sent: any[] = [];
+  const line: LinePort = { reply: async (to, texts) => void sent.push({ to, texts }), push: async (to, texts) => void sent.push({ to, texts }), showLoading: async () => {}, displayName: async () => "" };
+  const press = (getTracking: any, userId = "UCUST") => handleEvent({
+    type: "postback", source: { type: "user", userId }, replyToken: "rt", postback: { data: encodePostback({ k: "trk", c: "XR-AB12" }) },
+  } as any, { line, adminUserId: "UADMIN", getTracking });
+
+  await press(async () => ({ ok: true, found: true, tracking: "SPXTH0123456789", lineUserId: "UCUST" }));
+  assert.match(sent.at(-1).texts[0], /เลขพัสดุ SPX: SPXTH0123456789/);
+
+  const n = sent.length;
+  await press(async () => ({ ok: true, found: true, tracking: "SPXTH0123456789", lineUserId: "UCUST" }), "USTRANGER");
+  assert.equal(sent.length, n, "ไม่ส่งเลขพัสดุของคนอื่น");
+
+  await press(async () => ({ ok: true, found: true, tracking: "", lineUserId: "UCUST" }));
+  assert.match(sent.at(-1).texts[0] ?? sent.at(-2).texts[0], /ยังไม่มีเลขพัสดุ/);
+});
+
+test("แอดมินพิมพ์เลขพัสดุหลายบรรทัด → ลงชีททีละออเดอร์ + สรุปผล · ข้อความทั่วไป/ลูกค้าพิมพ์ → ไม่ใช่คำสั่ง", async () => {
+  const { parseTrackingLines } = await import("../lib/orderlog.ts");
+  assert.deepEqual(parseTrackingLines("XR-AB12 SPXTH0123456789\nxr-cd34: spxth0987654321"), [
+    { code: "XR-AB12", tracking: "SPXTH0123456789" }, { code: "XR-CD34", tracking: "SPXTH0987654321" },
+  ]);
+  assert.equal(parseTrackingLines("กันน้ำไหม"), null);
+  assert.equal(parseTrackingLines("XR-AB12 SPXTH0123456789\nขอบคุณครับ"), null);
+
+  const replies: any[] = [];
+  const line: LinePort = { reply: async (_t, texts) => void replies.push(texts), push: async () => {}, showLoading: async () => {}, displayName: async () => "" };
+  const saved: string[] = [];
+  const setTracking = async (code: string, tracking: string) => (saved.push(`${code}=${tracking}`), code !== "XR-ZZZZ");
+  const msg = (text: string, userId: string) => ({ type: "message", source: { type: "user", userId }, replyToken: "rt", message: { type: "text", text } }) as any;
+  await handleEvent(msg("XR-AB12 SPXTH0123456789\nXR-ZZZZ SPXTH0000000001", "UADMIN"), { line, adminUserId: "UADMIN", setTracking });
+  assert.deepEqual(saved, ["XR-AB12=SPXTH0123456789", "XR-ZZZZ=SPXTH0000000001"]);
+  assert.match(replies[0][0], /บันทึกเลขพัสดุแล้ว 1\/2 ออเดอร์/);
+  assert.match(replies[0][0], /✗ XR-ZZZZ/);
+  // ลูกค้าพิมพ์รูปแบบเดียวกัน → ไม่ถูกบันทึก
+  await handleEvent(msg("XR-AB12 SPXTH9999999999", "UCUST"), { line, adminUserId: "UADMIN", setTracking, ask: async () => ({ reply: "ok", needsAdmin: false, adminNote: "" }), getImageSets: async () => [], getFaq: async () => "" } as any);
+  assert.equal(saved.length, 2);
 });
 
 test("สรุปรายสัปดาห์: ดึงจาก Apps Script (action summary) → ข้อความสรุปภาษาไทย เรียงสินค้ายอดสูงสุดก่อน", async () => {

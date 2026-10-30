@@ -73,6 +73,23 @@ export async function logOrder(event: OrderLogEvent, opts: SheetOpts = {}): Prom
   return Boolean(await callOrderSheet(event, `บันทึก ${event.action === "new" ? event.order.code : event.code}`, opts));
 }
 
+// ---------- เลขพัสดุ ----------
+// แอดมินใส่เลข (ผ่านแชทบอท) → คอลัมน์ เลขพัสดุ + สถานะ จัดส่งแล้ว · false = ไม่พบออเดอร์ / ชีทล่ม
+export const setTracking = async (code: string, tracking: string, opts: SheetOpts = {}) =>
+  Boolean(await callOrderSheet({ action: "set_tracking", code, tracking }, `ใส่เลขพัสดุ ${code}`, opts));
+
+export type TrackingInfo = { ok: boolean; found: boolean; tracking?: string; lineUserId?: string; status?: string };
+// null = ชีทล่ม / ยังไม่ตั้งค่า
+export const getTracking = (code: string, opts: SheetOpts = {}) => callOrderSheet<TrackingInfo>({ action: "get_tracking", code }, `ขอเลขพัสดุ ${code}`, opts);
+
+// ข้อความที่แอดมินพิมพ์ใส่เลขพัสดุ: บรรทัดละ "XR-ABCD SPXTH0123456789" (คั่นด้วยเว้นวรรค : หรือ -) · บรรทัดอื่นที่ไม่ใช่รูปแบบนี้ → ไม่ใช่คำสั่ง
+export function parseTrackingLines(text: string): { code: string; tracking: string }[] | null {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const out = lines.map((l) => l.match(/^(XR-[A-Z0-9]{4})\s*[:\-–]?\s*([A-Z0-9]{8,})$/i));
+  if (!lines.length || out.some((m) => !m)) return null;
+  return out.map((m) => ({ code: m![1].toUpperCase(), tracking: m![2].toUpperCase() }));
+}
+
 // ---------- สรุปยอดรายสัปดาห์ (Vercel Cron ทุกวันอาทิตย์ → /api/weekly-report) ----------
 export type WeeklySummary = {
   ok: boolean;
