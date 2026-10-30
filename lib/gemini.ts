@@ -4,8 +4,14 @@ import { buildSystemPrompt, wrapQuestion } from "./prompt.ts";
 import { DEFAULT_REPLY } from "./shop.ts";
 
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-// รุ่นสำรอง: ใช้ตอนรุ่นหลักคนใช้เยอะจนล่ม (503 high demand / 504) · เปลี่ยนได้ด้วย GEMINI_FALLBACK_MODEL ("off" = ไม่ใช้)
+// รุ่นสำรอง (ใส่หลายรุ่นคั่นด้วย comma ได้ ลองตามลำดับ): ใช้ตอนรุ่นหลักล่ม (503/504) หรือโควตาเต็ม (429)
+// แผนฟรีจำกัดวันละ 20 ครั้ง "ต่อรุ่น" → ใส่หลายรุ่น = ได้หลายเท่า · ตั้งด้วย GEMINI_FALLBACK_MODEL ("off" = ไม่ใช้)
 export const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL === "off" ? "" : process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash";
+// รุ่นที่เพิ่งเจอโควตาเต็ม → ข้ามไปก่อน ไม่เปลืองเวลา/โควตาลองซ้ำ (จำในเครื่อง serverless ที่ยังอุ่นอยู่)
+const QUOTA_COOLDOWN_MS = 10 * 60_000;
+const exhaustedUntil = new Map<string, number>();
+export const _resetQuotaMemory = () => exhaustedUntil.clear();
+const isQuota = (message: string) => /\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(message);
 const TIMEOUT_MS = 15_000; // ต่อครั้ง · webhook ตอบ LINE ทันทีแล้ว (waitUntil) ถ้า reply token หมดอายุจะส่งแบบ push แทน
 const BUDGET_MS = 48_000; // รวมทุกครั้งที่ลอง ต้องจบก่อน maxDuration ของ webhook (60 วิ)
 // ระดับการคิด: LOW เร็วพอสำหรับตอบแชท (เปลี่ยนได้ด้วย GEMINI_THINKING = MINIMAL / LOW / MEDIUM / HIGH)
@@ -62,9 +68,14 @@ export async function askGemini(
     },
   });
 
-  // Google คนใช้เยอะ (503) / ตอบไม่ทัน (504) / ชนโควตา (429) → ลองรุ่นสำรอง แล้วกลับมาลองรุ่นหลักอีกครั้ง ภายในเวลาที่เหลือ
-  // error อื่นของรุ่นหลัก (คีย์ผิด ชื่อรุ่นผิด) → หยุดเลย · รุ่นสำรองพังด้วยเหตุอะไรก็ข้ามไปลองต่อ
-  const plan = [model, ...(fallbackModel && fallbackModel !== model ? [fallbackModel] : []), model];
+  // ลำดับ: รุ่นหลัก → รุ่นสำรองทีละรุ่น → (ถ้ารุ่นหลักแค่ล่มชั่วคราว 503/504) กลับมาลองรุ่นหลักอีกครั้ง ภายในเวลาที่เหลือ
+  // ข้ามรุ่นที่เพิ่งโควตาเต็ม · error อื่นของรุ่นหลัก (คีย์ผิด ชื่อรุ่นผิด) → หยุดเลย · รุ่นสำรองพังด้วยเหตุอะไรก็ข้ามไปลองต่อ
+  const now = Date.now();
+  const fallbacks = fallbackModel.split(",").map((s) => s.trim()).filter((s) => s && s !== model);
+  const all = [model, ...new Set(fallbacks)];
+  const ready = all.filter((m) => (exhaustedUntil.get(m) ?? 0) <= now);
+  const plan = ready.length ? ready : [model]; // เต็มหมดทุกรุ่น → ลองรุ่นหลักครั้งเดียว (เผื่อโควตารีเซ็ตแล้ว)
+  let primaryHiccup = false; // รุ่นหลักล่มชั่วคราว (ไม่ใช่โควตา) → ค่อยกลับมาลองซ้ำท้ายสุด
   let res;
   let lastErr: unknown;
   for (let i = 0; i < plan.length; i++) {
@@ -82,6 +93,9 @@ export async function askGemini(
       const msg = String((err as Error)?.message ?? err);
       console.warn(`[gemini] error (${m}): ${msg.slice(0, 500)}`);
       if (m === model && !isRetryable(msg)) throw err;
+      if (isQuota(msg)) exhaustedUntil.set(m, Date.now() + QUOTA_COOLDOWN_MS);
+      else if (m === model && i === 0) primaryHiccup = true;
+      if (i === plan.length - 1 && primaryHiccup && plan.filter((x) => x === model).length === 1) plan.push(model);
       // รุ่นถูกปิด แล้ว Google บอกรุ่นใหม่ให้ ("Please update your code to use models/xxx") → ลองรุ่นนั้นต่อทันที
       const suggested = m !== model ? suggestedModel(msg) : null;
       if (suggested && !plan.includes(suggested)) {

@@ -336,7 +336,7 @@ test("ลูกค้ากดเลือกสี แต่ AI ลืมส่
 
 // ---------- สั่งซื้อ ----------
 import { priceOrder, signOrder, verifyOrder, singlePrice, validateAddress, decodePostback, orderSummaryText, newOrderCode, addressSentText } from "../lib/order.ts";
-import { isRetryable, suggestedModel } from "../lib/gemini.ts";
+import { isRetryable, suggestedModel, _resetQuotaMemory } from "../lib/gemini.ts";
 
 const PICKS = ["สีดำ มีเส้นขอบ", "สั้น-ยาว", "มีเส้นคาดกลาง"];
 
@@ -511,4 +511,17 @@ test("รุ่นสำรองถูก Google ปิด (404 แนะนำ
   const a = await askGemini("faq", [], "กันน้ำไหม", "now", { generate: g.fn, model: "gemini-3.5-flash", fallbackModel: "gemini-2.5-flash", wait: noWait });
   assert.equal(a.reply, "ได้ครับ");
   assert.deepEqual(g.calls.map((c) => c.model), ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.8-flash-lite"]);
+});
+
+test("โควตาฟรีเต็ม (429): ไล่รุ่นสำรองหลายรุ่นตามลำดับ · ไม่ลองรุ่นที่เต็มซ้ำ · ข้อความถัดไปข้ามรุ่นที่เต็มเลย", async () => {
+  _resetQuotaMemory();
+  const QUOTA = new Error('{"error":{"code":429,"message":"You exceeded your current quota","status":"RESOURCE_EXHAUSTED"}}');
+  const opts = (fn: any) => ({ generate: fn, model: "gemini-a", fallbackModel: "gemini-b, gemini-c", wait: noWait });
+  const g1 = scripted(QUOTA, QUOTA, "ok");
+  assert.equal((await askGemini("faq", [], "q1", "now", opts(g1.fn))).reply, "ได้ครับ");
+  assert.deepEqual(g1.calls.map((c) => c.model), ["gemini-a", "gemini-b", "gemini-c"]); // ไม่กลับไปลอง a ซ้ำ
+  const g2 = scripted("ok");
+  await askGemini("faq", [], "q2", "now", opts(g2.fn));
+  assert.deepEqual(g2.calls.map((c) => c.model), ["gemini-c"]); // a, b เต็ม → ข้าม ไม่เสียโควตา/เวลา
+  _resetQuotaMemory();
 });
