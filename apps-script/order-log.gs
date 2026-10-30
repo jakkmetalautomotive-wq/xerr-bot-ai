@@ -2,6 +2,8 @@
  * บันทึกออเดอร์จากบอท LINE ลง Google Sheet (ชีทส่วนตัว — ห้ามแชร์ เพราะมีชื่อ/เบอร์/ที่อยู่ลูกค้า)
  * วิธีติดตั้ง: README หัวข้อ "บันทึกออเดอร์ลง Google Sheet"
  *   1) เปิดชีทออเดอร์ → ส่วนขยาย › Apps Script → วางโค้ดนี้ทั้งไฟล์ → บันทึก
+ *      เปิดจากชีทไม่ได้ ("ไม่สามารถเปิดไฟล์ได้") = ล็อกอินหลายบัญชี → ไปที่ script.google.com ด้วยบัญชีเจ้าของชีท
+ *      › โปรเจกต์ใหม่ › วางโค้ด แล้วข้อ 2 เพิ่ม Script Property SHEET_ID = id ชีท (ส่วนระหว่าง /d/ กับ /edit ในลิงก์ชีท)
  *   2) ตั้งค่าโปรเจกต์ (รูปเฟือง) › Script Properties → เพิ่ม SECRET = รหัสลับที่ตั้งเอง (ตัวอักษรอังกฤษ+ตัวเลข 20 ตัวขึ้นไป)
  *   3) ทำให้ใช้งานได้ › การทำให้ใช้งานได้รายการใหม่ › ประเภท "เว็บแอป" · ดำเนินการในฐานะ "ฉัน" · ผู้มีสิทธิ์เข้าถึง "ทุกคน"
  *   4) คัดลอก URL เว็บแอป → Vercel: ORDER_LOG_URL = URL นั้น · ORDER_LOG_SECRET = รหัสเดียวกับข้อ 2 → Redeploy
@@ -56,11 +58,16 @@ function doPost(e) {
 
 // เปิด URL เว็บแอปในเบราว์เซอร์ = เช็คว่าติดตั้งแล้ว (ไม่แสดงข้อมูลออเดอร์)
 function doGet() {
-  return reply({ ok: true, note: 'XERR order log พร้อมใช้งาน', secretSet: Boolean(PropertiesService.getScriptProperties().getProperty('SECRET')) });
+  const props = PropertiesService.getScriptProperties();
+  let sheet = '';
+  try { sheet = sheet_().getParent().getName(); } catch (err) { sheet = 'เปิดชีทไม่ได้: ' + err; }
+  return reply({ ok: true, note: 'XERR order log พร้อมใช้งาน', secretSet: Boolean(props.getProperty('SECRET')), sheet: sheet });
 }
 
 function sheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  // สคริปต์ที่สร้างจาก script.google.com (ไม่ได้ผูกกับชีท) → ใช้ชีทตาม Script Property SHEET_ID
+  const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  const ss = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(SHEET_NAME);
