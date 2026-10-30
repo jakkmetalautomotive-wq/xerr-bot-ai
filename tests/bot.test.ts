@@ -336,7 +336,7 @@ test("ลูกค้ากดเลือกสี แต่ AI ลืมส่
 
 // ---------- สั่งซื้อ ----------
 import { priceOrder, signOrder, verifyOrder, singlePrice, validateAddress, decodePostback, orderSummaryText, newOrderCode, addressSentText } from "../lib/order.ts";
-import { isRetryable } from "../lib/gemini.ts";
+import { isRetryable, suggestedModel } from "../lib/gemini.ts";
 
 const PICKS = ["สีดำ มีเส้นขอบ", "สั้น-ยาว", "มีเส้นคาดกลาง"];
 
@@ -498,6 +498,17 @@ test("AI ล่มจนตอบไม่ได้ → ข้อความข
   const texts = sent[0].texts;
   assert.match(texts[0], /ขัดข้องชั่วคราว/);
   const last = texts[texts.length - 1];
-  assert.deepEqual(last.quickReply.items.map((i: any) => i.action.text), [MENU.order, MENU.price, MENU.install, MENU.review]);
+  assert.deepEqual(last.quickReply.items.map((i: any) => i.action.text), [MENU.order, MENU.price, MENU.promo, MENU.install, MENU.review, MENU.admin, MENU.design]);
   assert.equal(sent[1].to, "UADMIN");
+});
+
+test("รุ่นสำรองถูก Google ปิด (404 แนะนำรุ่นใหม่ — เหตุการณ์จริง 30 ต.ค. 08:34) → ลองรุ่นที่แนะนำต่อทันที", async () => {
+  const GONE = new Error('{"error":{"code":404,"message":"This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash-lite instead.","status":"NOT_FOUND"}}');
+  const QUOTA = new Error('{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}');
+  assert.equal(suggestedModel(GONE.message), "gemini-3.8-flash-lite");
+  assert.equal(suggestedModel(QUOTA.message), null);
+  const g = scripted(QUOTA, GONE, "ok");
+  const a = await askGemini("faq", [], "กันน้ำไหม", "now", { generate: g.fn, model: "gemini-3.5-flash", fallbackModel: "gemini-2.5-flash", wait: noWait });
+  assert.equal(a.reply, "ได้ครับ");
+  assert.deepEqual(g.calls.map((c) => c.model), ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.8-flash-lite"]);
 });

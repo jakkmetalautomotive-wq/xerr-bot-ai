@@ -67,7 +67,8 @@ export async function askGemini(
   const plan = [model, ...(fallbackModel && fallbackModel !== model ? [fallbackModel] : []), model];
   let res;
   let lastErr: unknown;
-  for (const [i, m] of plan.entries()) {
+  for (let i = 0; i < plan.length; i++) {
+    const m = plan[i];
     if (i > 0) {
       if (BUDGET_MS - (Date.now() - t0) < 8_000) break; // เหลือเวลาไม่พอลองอีกครั้ง
       await wait(1_000);
@@ -79,8 +80,14 @@ export async function askGemini(
     } catch (err) {
       lastErr = err;
       const msg = String((err as Error)?.message ?? err);
-      console.warn(`[gemini] error (${m}): ${msg.slice(0, 300)}`);
+      console.warn(`[gemini] error (${m}): ${msg.slice(0, 500)}`);
       if (m === model && !isRetryable(msg)) throw err;
+      // รุ่นถูกปิด แล้ว Google บอกรุ่นใหม่ให้ ("Please update your code to use models/xxx") → ลองรุ่นนั้นต่อทันที
+      const suggested = m !== model ? suggestedModel(msg) : null;
+      if (suggested && !plan.includes(suggested)) {
+        console.warn(`[gemini] รุ่นสำรอง ${m} ใช้ไม่ได้ → ลอง ${suggested} ที่ Google แนะนำ (ตั้ง GEMINI_FALLBACK_MODEL=${suggested} ใน Vercel ได้)`);
+        plan.splice(i + 1, 0, suggested);
+      }
     }
   }
   if (!res) throw lastErr;
@@ -96,6 +103,11 @@ export async function askGemini(
     return { reply: DEFAULT_REPLY, needsAdmin: true, adminNote: "บอทตอบยาวเกิน (MAX_TOKENS) ลูกค้าถาม: " + question.slice(0, 200) };
   }
   return parseAnswer(res.text, question);
+}
+
+// ข้อความ 404 ของ Google: "...is no longer available to new users. Please update your code to use models/gemini-x.y-..." → ชื่อรุ่นนั้น
+export function suggestedModel(message: string): string | null {
+  return message.match(/use models\/(gemini-[a-z0-9.-]+[a-z0-9])/i)?.[1] ?? null;
 }
 
 export function isRetryable(message: string): boolean {

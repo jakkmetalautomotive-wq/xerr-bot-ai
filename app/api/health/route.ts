@@ -3,7 +3,7 @@
 // ไม่แสดงคีย์ใด ๆ — แสดงแค่ผ่าน/ไม่ผ่าน + ข้อความ error
 import { GoogleGenAI } from "@google/genai";
 import { getFaq, sheetUrls } from "@/lib/sheet.ts";
-import { MODEL, THINKING, askGemini } from "@/lib/gemini.ts";
+import { MODEL, FALLBACK_MODEL, THINKING, askGemini } from "@/lib/gemini.ts";
 import { bangkokClock } from "@/lib/shop.ts";
 import { getImageSets } from "@/lib/images.ts";
 
@@ -32,6 +32,24 @@ export async function GET(req: Request) {
   // เช็ค Gemini กินโควตาคีย์ → ต้องตั้ง HEALTH_KEY ใน Vercel แล้วแนบ ?key=... ให้ตรง (ไม่ตั้ง = ปิดไว้)
   const healthKey = process.env.HEALTH_KEY ?? "";
   const keyOk = healthKey.length >= 8 && params.get("key") === healthKey;
+  // ?models=1&key=... → รายชื่อรุ่น Gemini ที่คีย์นี้ใช้ได้ (ไม่กินโควตา) ไว้เลือก GEMINI_MODEL / GEMINI_FALLBACK_MODEL
+  if (params.get("models") === "1") {
+    if (!keyOk) out.models = { ok: null, note: healthKey ? "ต้องแนบ key ให้ถูกต้อง" : "ปิดอยู่ (ตั้ง HEALTH_KEY ใน Vercel เพื่อเปิด)" };
+    else {
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const names: string[] = [];
+        for await (const m of await ai.models.list()) {
+          const name = (m.name ?? "").replace(/^models\//, "");
+          if (/^gemini-/.test(name) && (m.supportedActions ?? []).includes("generateContent")) names.push(name);
+        }
+        out.models = { ok: true, current: MODEL, fallback: FALLBACK_MODEL || "(ปิด)", flash: names.filter((n) => n.includes("flash")).sort(), all: names.sort() };
+      } catch (e) {
+        out.models = { ok: false, error: errMsg(e) };
+      }
+    }
+  }
+
   if (params.get("gemini") === "1" && !keyOk) {
     out.gemini = { ok: null, note: healthKey ? "ต้องแนบ key ให้ถูกต้อง" : "ปิดอยู่ (ตั้ง HEALTH_KEY ใน Vercel เพื่อเปิด)" };
   } else if (params.get("gemini") === "1") {

@@ -223,7 +223,8 @@ async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: strin
 function withMenuButtons(out: OutMessage[]): OutMessage[] {
   const last = out[out.length - 1];
   if (typeof last !== "string") return out;
-  const items = [MENU.order, MENU.price, MENU.install, MENU.review].map((t) => ({ type: "action", action: { type: "message", label: t, text: t } }));
+  // ปุ่มเดียวกับ Rich Menu 6 ช่อง (lib/richmenu.ts) + ราคา
+  const items = [MENU.order, MENU.price, MENU.promo, MENU.install, MENU.review, MENU.admin, MENU.design].map((t) => ({ type: "action", action: { type: "message", label: t, text: t } }));
   return [...out.slice(0, -1), { type: "text", text: last, quickReply: { items } }];
 }
 
