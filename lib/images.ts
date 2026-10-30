@@ -169,14 +169,16 @@ const acrylic = (p: { black: string; blackNo: string; white: string; whiteNo: st
   ["สีเทา มีเส้นขอบ", p.grey], ["สีเทา ไร้เส้นขอบ", p.greyNo], ["เคฟล่า", p.kevlar],
 ];
 const REAL_PHOTOS: Record<string, Record<string, string | [string, string][]>> = {
+  // การ์ดประเภทสินค้า: ภาพปก "กรอบป้าย…" ที่ร้านทำ — Drive โฟลเดอร์ 16G9HWg0H7gjxG2L44Zx2t5VewyBCz_hZ (30 ต.ค. 2026)
+  // (การ์ดรีวิวใช้รูปชุดนี้ด้วย — categoryPhoto)
   [CATEGORY_SET]: {
-    "อะคริลิค": "1ObHYDZaanBdC3UhtulEtHT41kmFgfrGh",
-    "สแตนเลส": "1rQ41e0O9EniCzkn7p2AYAmZi1pcCz1Xg",
-    "เหล็กพ่นสี": "1AeAPm3off9mlLeyX7tEQavwIXz1UZz_3",
-    "พลาสติก ABS": "1IQTrmeUac5XSIFAetusDJah0hv9w13Mt",
-    "ไร้ขอบ": "1XXIXmd7_CxwrLh8UiaPFcc5ZGFSNWxlq",
-    "รถตู้/บรรทุก": "1eto3c7NCL1vlSSs2gFOEWj71MiF-hqGV",
-    "กรอบป้ายภาษี พรบ.": "/products/tax-car.jpg",
+    "อะคริลิค": "1EwwRYMYxG_dxGRc1e1jbmx60WYe0u829",
+    "สแตนเลส": "1catf8C36yPilgYpi9eVh2-KNhGjP8IDF",
+    "เหล็กพ่นสี": "1XxYBNHJXT5f3Y5VJgya7hG_hgw8EpFAJ",
+    "พลาสติก ABS": "1ORflh5VcKo69Z8k0Ys6NsHqYWPUyXzrX", // abs1.jpg (ในโฟลเดอร์มี abs copy.jpg รูปเก่าอีกรูป ไม่ได้ใช้)
+    "ไร้ขอบ": "1NYXxrlggIUoLxR-Y86r87rDy3rnIL-f9",
+    "รถตู้/บรรทุก": "1W9Netig2RSAA5a9HhxHbxhFUU96aJJ-V",
+    "กรอบป้ายภาษี พรบ.": "1mVn3XL4hdgbhjobJM2q1TI9HfKxC_y13",
   },
   // ป้ายภาษี: รูปเก็บในบอท (public/products) ไม่ได้อยู่ใน Drive — จักรส่งมาในแชท 29 ต.ค. 2026
   "กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ": {

@@ -34,9 +34,12 @@ test("ปุ่มเมนู 🛒 สั่งซื้อ → การ์ด
   const bubbles = sent[0].texts[1].contents.contents;
   assert.deepEqual(bubbles.map((b: any) => b.body.contents[1].contents[1].text), ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "ไร้ขอบ", "รถตู้/บรรทุก", "กรอบป้ายภาษี พรบ."]);
   assert.ok(bubbles.every((b: any) => /^https:\/\//.test(b.hero.url)));
-  // รูปจริงจาก Drive ทุกประเภท ยกเว้นป้ายภาษี (รูปเก็บในบอท public/products)
-  assert.deepEqual(bubbles.map((b: any) => b.hero.url.includes("/api/img?id=")), [true, true, true, true, true, true, false]);
-  assert.match(bubbles[6].hero.url, /\/products\/tax-car\.jpg$/);
+  // ภาพปก "กรอบป้าย…" ที่ร้านทำ (Drive 30 ต.ค.) ครบ 7 ประเภท
+  const ids = bubbles.map((b: any) => b.hero.url.match(/\/api\/img\?id=([\w-]+)/)?.[1]);
+  assert.deepEqual(ids, [
+    "1EwwRYMYxG_dxGRc1e1jbmx60WYe0u829", "1catf8C36yPilgYpi9eVh2-KNhGjP8IDF", "1XxYBNHJXT5f3Y5VJgya7hG_hgw8EpFAJ", "1ORflh5VcKo69Z8k0Ys6NsHqYWPUyXzrX",
+    "1NYXxrlggIUoLxR-Y86r87rDy3rnIL-f9", "1W9Netig2RSAA5a9HhxHbxhFUU96aJJ-V", "1mVn3XL4hdgbhjobJM2q1TI9HfKxC_y13",
+  ]);
   assert.ok(!bubbles.some((b: any) => b.hero.url.includes("/samples/")), "ไม่เหลือภาพประกอบชั่วคราวแล้ว");
 });
 
