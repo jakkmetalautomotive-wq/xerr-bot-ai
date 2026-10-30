@@ -31,12 +31,17 @@ function doPost(e) {
     if (data.action === 'new') {
       const o = data.order;
       // เบอร์ / รหัสไปรษณีย์ ใส่ ' นำหน้า → เก็บเลข 0 ข้างหน้าไว้
-      sh.appendRow([
-        now, o.code, data.status || 'รอตรวจสลิป', o.product, o.picks, o.tax ? 'เพิ่ม' : '-', o.base, o.taxPrice, o.shipping, o.total,
-        o.name, "'" + o.phone, o.address, "'" + o.zip, o.note, o.lineName, o.lineUserId, now,
-      ]);
+      const details = [o.product, o.picks, o.tax ? 'เพิ่ม' : '-', o.base, o.taxPrice, o.shipping, o.total, o.name, "'" + o.phone, o.address, "'" + o.zip, o.note, o.lineName, o.lineUserId];
+      const row = findRow_(sh, o.code);
+      if (row) {
+        // แอดมินกดสถานะไปก่อนข้อมูลจะมาถึง (มีแถวสถานะอยู่แล้ว) → เติมรายละเอียดลงแถวเดิม ไม่ซ้ำ · คงสถานะเดิมไว้
+        sh.getRange(row, 4, 1, details.length).setValues([details]);
+        return reply({ ok: true, merged: true });
+      }
+      sh.appendRow([now, o.code, data.status || 'รอตรวจสลิป'].concat(details).concat([now]));
       return reply({ ok: true });
     }
+    if (data.action === 'summary') return reply(weeklySummary_(sh, data.days || 7));
     if (data.action === 'status') {
       const row = findRow_(sh, data.code);
       if (row) {
@@ -77,6 +82,57 @@ function sheet_() {
     sh.getRange('G:J').setNumberFormat('#,##0');
   }
   return sh;
+}
+
+// สรุปยอด N วันล่าสุด (นับจากวันที่ลงออเดอร์) → ลงแท็บ "สรุปรายสัปดาห์" + ส่งกลับให้บอทส่งเข้า LINE แอดมิน
+// ยอดขาย = เฉพาะออเดอร์สถานะ "ชำระแล้ว"
+const SUMMARY_SHEET = 'สรุปรายสัปดาห์';
+const SUMMARY_HEADERS = ['ส่งสรุปเมื่อ', 'ตั้งแต่', 'ถึง', 'ออเดอร์ชำระแล้ว', 'ยอดขาย', 'เพิ่มป้ายภาษี', 'รอตรวจสลิป', 'ยอดไม่ตรง', 'แยกตามสินค้า'];
+
+function weeklySummary_(sh, days) {
+  const to = new Date();
+  const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+  const last = sh.getLastRow();
+  const rows = last < 2 ? [] : sh.getRange(2, 1, last - 1, HEADERS.length).getValues();
+  const s = { paidCount: 0, paidTotal: 0, taxCount: 0, waiting: 0, mismatch: 0, byProduct: {} };
+  rows.forEach(function (r) {
+    const at = toDate_(r[0]);
+    if (!at || at < from || at > to) return;
+    const status = String(r[COL_STATUS - 1]);
+    if (status === 'รอตรวจสลิป') s.waiting++;
+    if (status === 'ยอดไม่ตรง') s.mismatch++;
+    if (status !== 'ชำระแล้ว') return;
+    const total = Number(r[9]) || 0;
+    s.paidCount++;
+    s.paidTotal += total;
+    if (String(r[5]) === 'เพิ่ม') s.taxCount++;
+    const product = String(r[3] || 'ไม่ระบุสินค้า');
+    const p = s.byProduct[product] || (s.byProduct[product] = { count: 0, total: 0 });
+    p.count++;
+    p.total += total;
+  });
+  const fmt = function (d) { return Utilities.formatDate(d, TZ, 'yyyy-MM-dd'); };
+  const result = { ok: true, from: fmt(from), to: fmt(to), paidCount: s.paidCount, paidTotal: s.paidTotal, taxCount: s.taxCount, waiting: s.waiting, mismatch: s.mismatch, byProduct: s.byProduct };
+
+  const ss = sh.getParent();
+  let sum = ss.getSheetByName(SUMMARY_SHEET);
+  if (!sum) {
+    sum = ss.insertSheet(SUMMARY_SHEET);
+    sum.appendRow(SUMMARY_HEADERS);
+    sum.setFrozenRows(1);
+    sum.getRange(1, 1, 1, SUMMARY_HEADERS.length).setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
+    sum.getRange('E:E').setNumberFormat('#,##0');
+  }
+  const products = Object.keys(s.byProduct).map(function (k) { return k + ' ' + s.byProduct[k].count + ' (' + s.byProduct[k].total + ')'; }).join(' · ');
+  sum.appendRow([Utilities.formatDate(to, TZ, 'yyyy-MM-dd HH:mm'), result.from, result.to, s.paidCount, s.paidTotal, s.taxCount, s.waiting, s.mismatch, products]);
+  return result;
+}
+
+// วันที่ในชีท: Google แปลงเป็น Date ให้เอง หรือยังเป็นข้อความ "yyyy-MM-dd HH:mm" (เวลาไทย)
+function toDate_(v) {
+  if (v instanceof Date) return v;
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?/);
+  return m ? new Date(m[1] + '-' + m[2] + '-' + m[3] + 'T' + ('0' + (m[4] || '0')).slice(-2) + ':' + (m[5] || '00') + ':00+07:00') : null;
 }
 
 function findRow_(sh, code) {

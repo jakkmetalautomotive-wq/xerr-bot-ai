@@ -37,31 +37,75 @@ export function newOrderEvent(o: PricedOrder, a: Address, lineName: string, line
 export const statusEvent = (code: string, status: string): OrderLogEvent => ({ action: "status", code, status });
 
 type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
+type SheetOpts = { url?: string; secret?: string; fetchFn?: FetchFn };
 
-export async function logOrder(
-  event: OrderLogEvent,
-  { url = process.env.ORDER_LOG_URL ?? "", secret = process.env.ORDER_LOG_SECRET ?? "", fetchFn = fetch as FetchFn } = {},
-): Promise<boolean> {
+// ส่งคำสั่งไป Apps Script → ผลตอบกลับ (null = ยังไม่ตั้งค่า / ล่ม / รหัสผิด — log ไว้แล้ว)
+async function callOrderSheet<T extends { ok?: boolean; error?: string }>(
+  payload: Record<string, unknown>,
+  what: string,
+  { url = process.env.ORDER_LOG_URL ?? "", secret = process.env.ORDER_LOG_SECRET ?? "", fetchFn = fetch as FetchFn }: SheetOpts = {},
+): Promise<T | null> {
   if (!url || !secret) {
-    console.warn("[orderlog] ยังไม่ได้ตั้ง ORDER_LOG_URL / ORDER_LOG_SECRET — ไม่ได้บันทึกลงชีท:", event.action === "new" ? event.order.code : event.code);
-    return false;
+    console.warn(`[orderlog] ยังไม่ได้ตั้ง ORDER_LOG_URL / ORDER_LOG_SECRET — ข้าม: ${what}`);
+    return null;
   }
   try {
     const res = await fetchFn(url, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" }, // Apps Script อ่านจาก e.postData.contents เป็นข้อความ JSON
-      body: JSON.stringify({ ...event, secret }),
+      body: JSON.stringify({ ...payload, secret }),
       redirect: "follow",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(15_000),
     });
-    const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    const data = (await res.json().catch(() => null)) as T | null;
     if (!res.ok || !data?.ok) {
-      console.error(`[orderlog] บันทึกไม่สำเร็จ status=${res.status} error=${data?.error ?? "-"}`);
-      return false;
+      console.error(`[orderlog] ${what} ไม่สำเร็จ status=${res.status} error=${data?.error ?? "-"}`);
+      return null;
     }
-    return true;
+    return data;
   } catch (err) {
-    console.error("[orderlog] บันทึกไม่สำเร็จ:", (err as Error).message);
-    return false;
+    console.error(`[orderlog] ${what} ไม่สำเร็จ:`, (err as Error).message);
+    return null;
   }
+}
+
+export async function logOrder(event: OrderLogEvent, opts: SheetOpts = {}): Promise<boolean> {
+  return Boolean(await callOrderSheet(event, `บันทึก ${event.action === "new" ? event.order.code : event.code}`, opts));
+}
+
+// ---------- สรุปยอดรายสัปดาห์ (Vercel Cron ทุกวันอาทิตย์ → /api/weekly-report) ----------
+export type WeeklySummary = {
+  ok: boolean;
+  from: string;
+  to: string;
+  paidCount: number;
+  paidTotal: number;
+  taxCount: number;
+  waiting: number;
+  mismatch: number;
+  byProduct: Record<string, { count: number; total: number }>;
+};
+
+export const fetchWeeklySummary = (opts: SheetOpts = {}) => callOrderSheet<WeeklySummary>({ action: "summary", days: 7 }, "สรุปรายสัปดาห์", opts);
+
+const baht = (n: number) => n.toLocaleString("en-US");
+const thaiDate = (iso: string) => {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d} ${["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."][m]}`;
+};
+
+export function weeklyReportText(s: WeeklySummary): string {
+  const products = Object.entries(s.byProduct)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([name, p]) => `🔺 ${name} ${p.count} ออเดอร์ · ${baht(p.total)}.-`);
+  return [
+    `📊 สรุปยอดขาย LINE 7 วันล่าสุด (${thaiDate(s.from)} – ${thaiDate(s.to)})`,
+    "",
+    `✅ ชำระแล้ว ${s.paidCount} ออเดอร์ · ยอดรวม ${baht(s.paidTotal)}.-`,
+    ...(products.length ? products : ["(ยังไม่มีออเดอร์ที่ชำระแล้ว)"]),
+    `➕ เพิ่มป้ายภาษี พรบ. ${s.taxCount} ออเดอร์`,
+    ...(s.waiting || s.mismatch ? ["", `⏳ รอตรวจสลิป ${s.waiting} · ❌ ยอดไม่ตรง ${s.mismatch} (เช็คในชีทออเดอร์)`] : []),
+    "",
+    "รายละเอียดอยู่ในชีท \"ออเดอร์ LINE\" แท็บ สรุปรายสัปดาห์",
+  ].join("\n");
 }

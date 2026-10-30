@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     liffId: process.env.LIFF_ID || process.env.NEXT_PUBLIC_LIFF_ID,
     paymentInfo: paymentInfo(),
     orderSecret: secret,
+    reviewPromo: true,
   };
   waitUntil(
     Promise.all(events.map((e) => handleEvent(e, deps).catch((err) => console.error("[webhook] error:", err)))),

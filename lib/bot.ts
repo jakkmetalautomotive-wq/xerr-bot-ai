@@ -7,7 +7,7 @@ import {
   getImageSets, findSet, buildCarousel, buildQuickReply, parseChoice, nextStepSet, firstStepSet, stepOf, stepTitle, isQuickSet,
   CATEGORY_SET, INSTALL_SET, REVIEW_SET, type FlexOut, type ImageSet,
 } from "./images.ts";
-import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer } from "./shop.ts";
+import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer, REVIEW_PROMO, REVIEW_REMINDER } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage,
   decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
@@ -38,6 +38,8 @@ export interface BotDeps {
   orderSecret?: string;
   // บันทึกสถานะออเดอร์ลงชีท (ทดสอบสลับเป็นตัวปลอมได้)
   logOrder?: (event: OrderLogEvent) => Promise<boolean>;
+  // ต่อท้ายคำตอบแรกของลูกค้าแต่ละคนด้วยโปรรีวิว (เปิดใน webhook จริง)
+  reviewPromo?: boolean;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
@@ -78,6 +80,9 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
 
   const question = msg.type === "text" ? msg.text : msg.type === "sticker" ? STICKER : null;
   if (!question) return; // ตำแหน่งที่ตั้ง / เสียง ฯลฯ — ปล่อยให้แอดมินดูเอง
+
+  // ลูกค้าทักครั้งแรก (วันละครั้งต่อคน) → ต่อท้ายคำตอบด้วยโปรรีวิว
+  if (deps.reviewPromo && userId !== deps.adminUserId && !recentlyGreeted(userId)) deps = withReviewPromo(deps, userId);
 
   await deps.line.showLoading(userId).catch(() => {});
 
@@ -196,7 +201,7 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
     if (!deps.adminUserId || userId !== deps.adminUserId) return;
     const log = deps.logOrder ?? logOrder;
     if (pb.a === "ok") {
-      await deps.line.push(pb.u, [`ได้รับยอดชำระ ${pb.t.toLocaleString("en-US")}.- แล้วครับ ✅ ออเดอร์ ${pb.c}\nจัดส่ง SPX รอบถัดไป (ตัดรอบเที่ยง จันทร์–เสาร์) ขอบคุณที่อุดหนุนครับ 🙏`]);
+      await deps.line.push(pb.u, [`ได้รับยอดชำระ ${pb.t.toLocaleString("en-US")}.- แล้วครับ ✅ ออเดอร์ ${pb.c}\nจัดส่ง SPX รอบถัดไป (ตัดรอบเที่ยง จันทร์–เสาร์) ขอบคุณที่อุดหนุนครับ 🙏\n\n${REVIEW_REMINDER}`]);
       const logged = await log(statusEvent(pb.c, ORDER_STATUS.paid));
       await deps.line.reply(replyToken, [`✅ ยืนยันออเดอร์ ${pb.c} แล้ว · แจ้งลูกค้าแล้ว${logged ? " · ลงชีทแล้ว" : ""}`]);
     } else {
@@ -274,6 +279,33 @@ function defaultAsk(faq: string, question: string, userId: string, imageSets: st
 }
 
 // ตอบด้วย reply token ก่อน (ฟรี) ถ้าไม่ได้ค่อย push
+// โปรรีวิวสำหรับลูกค้าที่ทักครั้งแรก — จำในหน่วยความจำ (ไม่มีฐานข้อมูล): ไม่ส่งซ้ำภายใน 24 ชม. ถ้าเครื่อง serverless ยังอุ่นอยู่
+const GREET_TTL_MS = 24 * 60 * 60_000;
+const greetedAt = new Map<string, number>();
+export const _resetGreeted = () => greetedAt.clear();
+const recentlyGreeted = (userId: string, now = Date.now()) => now - (greetedAt.get(userId) ?? 0) < GREET_TTL_MS;
+
+// แทรก REVIEW_PROMO ในข้อความที่ตอบลูกค้าคนนี้ (ครั้งเดียว) · ข้อความสุดท้ายมีปุ่มด่วน → แทรกก่อน (ปุ่มด่วนแสดงใต้ข้อความสุดท้ายเท่านั้น)
+// LINE ส่งได้ไม่เกิน 5 ข้อความต่อครั้ง → เต็มแล้วไว้ทักครั้งหน้า
+function withReviewPromo(deps: BotDeps, userId: string): BotDeps {
+  const add = (messages: OutMessage[]): OutMessage[] => {
+    if (recentlyGreeted(userId) || messages.length >= 5) return messages;
+    greetedAt.set(userId, Date.now());
+    if (greetedAt.size > 20_000) greetedAt.delete(greetedAt.keys().next().value!);
+    const last = messages[messages.length - 1];
+    const hasQuickReply = typeof last === "object" && last !== null && "quickReply" in last;
+    return hasQuickReply ? [...messages.slice(0, -1), REVIEW_PROMO, last] : [...messages, REVIEW_PROMO];
+  };
+  return {
+    ...deps,
+    line: {
+      ...deps.line,
+      reply: (token, messages) => deps.line.reply(token, add(messages)),
+      push: (to, messages) => deps.line.push(to, to === userId ? add(messages) : messages),
+    },
+  };
+}
+
 async function send(deps: BotDeps, replyToken: string, userId: string, messages: OutMessage[]) {
   try {
     await deps.line.reply(replyToken, messages);

@@ -58,3 +58,58 @@ test("แอดมินกด ✅ / ❌ → อัปเดตสถานะ�
   await press("ok", "USTRANGER");
   assert.equal(logged.length, before);
 });
+
+test("ลูกค้าทักครั้งแรก → ต่อท้ายคำตอบด้วยโปรรีวิว 50.- (ครั้งเดียว) · มีปุ่มด่วน → แทรกก่อนปุ่ม · แอดมินไม่ได้", async () => {
+  const { _resetGreeted } = await import("../lib/bot.ts");
+  const { MENU, REVIEW_PROMO } = await import("../lib/shop.ts");
+  _resetGreeted();
+  const sent: any[] = [];
+  const line: LinePort = { reply: async (to, texts) => void sent.push({ to, texts }), push: async () => {}, showLoading: async () => {}, displayName: async () => "" };
+  const deps = { line, adminUserId: "UADMIN", reviewPromo: true, getImageSets: async () => sampleSets(), ask: async () => { throw new Error("ไม่ควรเรียก AI"); } };
+  const msg = (text: string, userId = "UNEW") => ({ type: "message", source: { type: "user", userId }, replyToken: "rt", message: { type: "text", text } }) as any;
+
+  await handleEvent(msg(MENU.promo), deps); // ข้อความสุดท้ายมีปุ่มด่วน "🛒 สั่งซื้อ"
+  const first = sent.at(-1).texts;
+  assert.equal(first.length, 2);
+  assert.equal(first[0], REVIEW_PROMO);
+  assert.match(REVIEW_PROMO, /ส่งรูปหรือคลิปรีวิว.*ส่วนลด 50\.- ทันที/);
+  assert.ok(first[1].quickReply);
+
+  await handleEvent(msg(MENU.design), deps); // ทักรอบสอง → ไม่ส่งซ้ำ
+  assert.ok(!sent.at(-1).texts.includes(REVIEW_PROMO));
+  await handleEvent(msg(MENU.design, "UADMIN"), deps); // แอดมินทดสอบเอง → ไม่ส่ง
+  assert.ok(!sent.at(-1).texts.includes(REVIEW_PROMO));
+  _resetGreeted();
+});
+
+test("แอดมินกด ✅ → ข้อความยืนยันถึงลูกค้ามีเตือนรีวิวรับส่วนลด 50.- ออเดอร์ถัดไป", async () => {
+  const pushed: any[] = [];
+  const line: LinePort = { reply: async () => {}, push: async (to, texts) => void pushed.push({ to, texts }), showLoading: async () => {}, displayName: async () => "" };
+  await handleEvent({
+    type: "postback", source: { type: "user", userId: "UADMIN" }, replyToken: "rt",
+    postback: { data: encodePostback({ k: "adm", a: "ok", c: "XR-AB12", u: "UCUST", t: 309 }) },
+  } as any, { line, adminUserId: "UADMIN", logOrder: async () => true });
+  const toCustomer = pushed.find((p) => p.to === "UCUST").texts[0];
+  assert.match(toCustomer, /ได้รับยอดชำระ 309\.- แล้วครับ ✅/);
+  assert.match(toCustomer, /อย่าลืมรีวิว.*ส่วนลด 50\.- ในออเดอร์ถัดไป/);
+});
+
+test("สรุปรายสัปดาห์: ดึงจาก Apps Script (action summary) → ข้อความสรุปภาษาไทย เรียงสินค้ายอดสูงสุดก่อน", async () => {
+  const { fetchWeeklySummary, weeklyReportText } = await import("../lib/orderlog.ts");
+  let body: any = null;
+  const fetchFn = (async (_u: string, init: RequestInit) => {
+    body = JSON.parse(String(init.body));
+    return new Response(JSON.stringify({
+      ok: true, from: "2026-10-25", to: "2026-11-01", paidCount: 3, paidTotal: 1216, taxCount: 1, waiting: 1, mismatch: 0,
+      byProduct: { "กรอบป้ายสแตนเลส": { count: 1, total: 309 }, "กรอบป้ายอะคริลิค": { count: 2, total: 907 } },
+    }));
+  }) as any;
+  const s = (await fetchWeeklySummary({ url: "https://x/exec", secret: "S", fetchFn }))!;
+  assert.deepEqual([body.action, body.days, body.secret], ["summary", 7, "S"]);
+  const text = weeklyReportText(s);
+  assert.match(text, /สรุปยอดขาย LINE 7 วันล่าสุด \(25 ต\.ค\. – 1 พ\.ย\.\)/);
+  assert.match(text, /✅ ชำระแล้ว 3 ออเดอร์ · ยอดรวม 1,216\.-/);
+  assert.ok(text.indexOf("กรอบป้ายอะคริลิค 2 ออเดอร์ · 907.-") < text.indexOf("กรอบป้ายสแตนเลส 1 ออเดอร์ · 309.-"));
+  assert.match(text, /⏳ รอตรวจสลิป 1 · ❌ ยอดไม่ตรง 0/);
+  assert.equal(await fetchWeeklySummary({ url: "", secret: "" }), null);
+});
