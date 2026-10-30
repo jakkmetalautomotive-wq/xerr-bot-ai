@@ -213,7 +213,7 @@ test("อ่านแท็บรูปสินค้า: จัดกลุ่
 test("ลิงก์ Google Drive → ส่งผ่าน /api/img · ลิงก์รูปตรงใช้ตามเดิม", () => {
   assert.equal(driveFileId("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view?usp=sharing"), "1AbCdEfGhIjKlMn");
   assert.equal(driveFileId("https://drive.google.com/open?id=1AbCdEfGhIjKlMn"), "1AbCdEfGhIjKlMn");
-  assert.match(lineImageUrl("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view"), /^https:\/\/.+\/api\/img\?id=1AbCdEfGhIjKlMn&v=4$/);
+  assert.match(lineImageUrl("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view"), /^https:\/\/.+\/api\/img\?id=1AbCdEfGhIjKlMn&v=5$/);
   assert.equal(lineImageUrl("https://example.com/a.jpg"), "https://example.com/a.jpg");
 });
 
@@ -224,8 +224,8 @@ test("การ์ดปัดดู (7 สี): ใบละแบบ มีร
   assert.ok(flex.altText.length <= 400);
   const bubbles = (flex.contents as any).contents;
   assert.equal(bubbles.length, 7);
-  assert.match(bubbles[0].hero.url, /^https:\/\/.+\/api\/img\?id=1ObHYDZaanBdC3UhtulEtHT41kmFgfrGh&v=4$/); // รูปจริงจาก Drive ผ่าน /api/img
-  assert.match(bubbles[6].hero.url, /\/api\/img\?id=15UyD2nLQugAuI4-F8Ezdkz3YpnrfbwRe&v=4$/); // เคฟล่า
+  assert.match(bubbles[0].hero.url, /^https:\/\/.+\/api\/img\?id=1ObHYDZaanBdC3UhtulEtHT41kmFgfrGh&v=5$/); // รูปจริงจาก Drive ผ่าน /api/img
+  assert.match(bubbles[6].hero.url, /\/api\/img\?id=15UyD2nLQugAuI4-F8Ezdkz3YpnrfbwRe&v=5$/); // เคฟล่า
   const action = bubbles[3].footer.contents[0].action;
   assert.equal(action.type, "message");
   assert.equal(action.label, "เลือกแบบที่ 4");

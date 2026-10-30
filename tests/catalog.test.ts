@@ -325,3 +325,13 @@ test("ถามกันน้ำ → ตอบข้อความที่จ
     assert.ok(asked, q);
   }
 });
+
+test("รูปเกือบจัตุรัสขอบดำ (ภาพปกพรบ. 960×950) → ไม่มีแถบขาวบน-ล่าง · รูปแนวนอนยังเติมขาวไม่ตัดขอบ", async () => {
+  const sharp = (await import("sharp")).default;
+  const black = await sharp({ create: { width: 960, height: 950, channels: 3, background: { r: 0, g: 0, b: 0 } } }).png().toBuffer();
+  const out = await squareOnWhite(black);
+  const { data, info } = await sharp(out).raw().toBuffer({ resolveWithObject: true });
+  const row = (y: number) => { let s = 0; for (let x = 0; x < info.width; x++) s += data[(y * info.width + x) * info.channels]; return s / info.width; };
+  assert.deepEqual([info.width, info.height], [PHOTO_SIZE, PHOTO_SIZE]);
+  assert.ok(row(0) < 20 && row(info.height - 1) < 20, `ขอบบน ${row(0)} / ล่าง ${row(info.height - 1)} ต้องดำ`);
+});

@@ -345,7 +345,7 @@ export function driveFileId(url: string): string | null {
   return url.match(/\/d\/([A-Za-z0-9_-]{10,})/)?.[1] ?? url.match(/[?&]id=([A-Za-z0-9_-]{10,})/)?.[1] ?? null;
 }
 
-const IMG_VERSION = 4; // 2 = พื้นขาว + จัตุรัสไม่ตกขอบ · 3 = + รูปลบพื้นหลัง · 4 = รูปลบพื้นหลังเฉพาะอะคริลิค สินค้าอื่นกลับเป็นต้นฉบับ
+const IMG_VERSION = 5; // 2 = พื้นขาว + จัตุรัสไม่ตกขอบ · 3 = + รูปลบพื้นหลัง · 4 = รูปลบพื้นหลังเฉพาะอะคริลิค สินค้าอื่นกลับเป็นต้นฉบับ · 5 = รูปเกือบจัตุรัสตัดขอบแทนเติมแถบขาว
 
 // LINE ต้องการลิงก์รูป https ตรง ๆ → ลิงก์ Drive ส่งผ่าน /api/img ของเราเอง
 export function lineImageUrl(url: string): string {

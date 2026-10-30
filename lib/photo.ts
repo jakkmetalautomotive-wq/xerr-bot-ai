@@ -14,12 +14,19 @@ export function cleanPhotoPath(id: string, original: Buffer | ArrayBuffer): stri
 
 export const PHOTO_SIZE = 1040;
 const WHITE = { r: 255, g: 255, b: 255, alpha: 1 };
+// รูปเกือบจัตุรัส (ด้านต่างกันไม่เกิน 5%) → ตัดขอบที่เกินนิดเดียวแทนการเติมแถบขาว
+// (ภาพปกพรบ. 960×950 ขอบดำ เคยโดนเติมแถบขาวบน-ล่าง — จักรแจ้ง 30 ต.ค. 2026)
+const NEAR_SQUARE = 0.05;
 
 export async function squareOnWhite(input: Buffer | ArrayBuffer): Promise<Buffer> {
-  return sharp(Buffer.from(input as ArrayBuffer))
+  const flat = await sharp(Buffer.from(input as ArrayBuffer))
     .rotate() // หมุนตาม EXIF ของรูปจากมือถือ
     .flatten({ background: WHITE })
-    .resize(PHOTO_SIZE, PHOTO_SIZE, { fit: "contain", background: WHITE, withoutEnlargement: false })
+    .toBuffer({ resolveWithObject: true });
+  const { width, height } = flat.info;
+  const nearSquare = Math.abs(width / height - 1) <= NEAR_SQUARE;
+  return sharp(flat.data)
+    .resize(PHOTO_SIZE, PHOTO_SIZE, { fit: nearSquare ? "cover" : "contain", background: WHITE, withoutEnlargement: false })
     .jpeg({ quality: 85, mozjpeg: true })
     .toBuffer();
 }
