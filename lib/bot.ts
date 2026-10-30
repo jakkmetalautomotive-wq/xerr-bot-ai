@@ -13,6 +13,7 @@ import {
   decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
 } from "./order.ts";
 import { slipImageMessage } from "./slip.ts";
+import { logOrder, statusEvent, ORDER_STATUS, type OrderLogEvent } from "./orderlog.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
 export type OutMessage = string | FlexOut | { type: string; [key: string]: unknown };
@@ -35,6 +36,8 @@ export interface BotDeps {
   liffId?: string;
   paymentInfo?: string;
   orderSecret?: string;
+  // บันทึกสถานะออเดอร์ลงชีท (ทดสอบสลับเป็นตัวปลอมได้)
+  logOrder?: (event: OrderLogEvent) => Promise<boolean>;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
@@ -184,11 +187,14 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
   // ปุ่มของแอดมิน — รับเฉพาะจากแอดมินจริง
   if (pb.k === "adm") {
     if (!deps.adminUserId || userId !== deps.adminUserId) return;
+    const log = deps.logOrder ?? logOrder;
     if (pb.a === "ok") {
       await deps.line.push(pb.u, [`ได้รับยอดชำระ ${pb.t.toLocaleString("en-US")}.- แล้วครับ ✅ ออเดอร์ ${pb.c}\nจัดส่ง SPX รอบถัดไป (ตัดรอบเที่ยง จันทร์–เสาร์) ขอบคุณที่อุดหนุนครับ 🙏`]);
-      await deps.line.reply(replyToken, [`✅ ยืนยันออเดอร์ ${pb.c} แล้ว · แจ้งลูกค้าแล้ว`]);
+      const logged = await log(statusEvent(pb.c, ORDER_STATUS.paid));
+      await deps.line.reply(replyToken, [`✅ ยืนยันออเดอร์ ${pb.c} แล้ว · แจ้งลูกค้าแล้ว${logged ? " · ลงชีทแล้ว" : ""}`]);
     } else {
       await deps.line.push(pb.u, [`ขออภัยครับ ยอดโอนของออเดอร์ ${pb.c} ยังไม่ตรง/ยังไม่พบยอด เดี๋ยวแอดมินติดต่อกลับในแชทนี้นะครับ 🙏`]);
+      await log(statusEvent(pb.c, ORDER_STATUS.mismatch));
       await deps.line.reply(replyToken, [`แจ้งลูกค้าแล้วว่ายอดออเดอร์ ${pb.c} ยังไม่ตรง · คุยต่อใน LINE OA Manager ได้เลย`]);
     }
   }

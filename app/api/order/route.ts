@@ -3,6 +3,7 @@
 import { getImageSets } from "@/lib/images.ts";
 import { verifyOrder, priceOrder, validateAddress, adminOrderMessage, orderLines } from "@/lib/order.ts";
 import { line } from "@/lib/line.ts";
+import { logOrder, newOrderEvent } from "@/lib/orderlog.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +56,9 @@ export async function POST(req: Request) {
   if (!body.chatMessageSent) {
     await line.push(user.sub, [`รับที่อยู่จัดส่งแล้วครับ ✅ ออเดอร์ ${order.code}\nโอนยอด ${order.total.toLocaleString("en-US")}.- แล้วส่งสลิปในแชทนี้ได้เลยครับ 🙏`]).catch(() => {});
   }
+
+  // ลงชีทออเดอร์ (สถานะ รอตรวจสลิป) — ชีทล่มก็ไม่กระทบลูกค้า
+  await logOrder(newOrderEvent(order, addr.value, user.name ?? "", user.sub));
 
   console.log(`[order] ${order.code} total=${order.total} picks=${order.picks.join("/")} tax=${order.tax}`);
   return Response.json({ ok: true, code: order.code, total: order.total });
