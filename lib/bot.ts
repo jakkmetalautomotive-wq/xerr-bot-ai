@@ -7,7 +7,7 @@ import {
   getImageSets, findSet, buildCarousel, buildQuickReply, parseChoice, nextStepSet, firstStepSet, stepOf, stepTitle, isQuickSet,
   CATEGORY_SET, INSTALL_SET, REVIEW_SET, type FlexOut, type ImageSet,
 } from "./images.ts";
-import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText } from "./shop.ts";
+import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage,
   decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
@@ -104,6 +104,13 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     if (!text) continue;
     await send(deps, replyToken, userId, [{ type: "text", text, quickReply: { items: [{ type: "action", action: { type: "message", label: MENU.order, text: MENU.order } }] } }]);
     addTurn(userId, question, text);
+    return;
+  }
+  // คำถามที่ร้านเขียนคำตอบไว้เอง (เช่น กันน้ำไหม) → ตอบตามนั้นทุกตัวอักษร ไม่ผ่าน AI
+  const canned = cannedAnswer(question);
+  if (canned) {
+    await send(deps, replyToken, userId, [{ type: "text", text: canned, quickReply: { items: [{ type: "action", action: { type: "message", label: MENU.order, text: MENU.order } }] } }]);
+    addTurn(userId, question, canned);
     return;
   }
   // ปุ่มเมนูที่ตอบด้วยการ์ดลิงก์ (กดแล้วเปิดคลิป / หน้ารีวิว)

@@ -492,7 +492,7 @@ test("รุ่นหลัก error ที่ลองซ้ำไม่ช่�
 
 test("AI ล่มจนตอบไม่ได้ → ข้อความขอโทษ + ปุ่มเมนู สั่งซื้อ/ราคา/วิธีติดตั้ง/รีวิว ที่ข้อความสุดท้าย + แจ้งแอดมิน", async () => {
   const { line, sent } = fakeLine();
-  await handleEvent(msgEvent({ type: "text", text: "กรอบป้ายอะคริลิคกันน้ำไหม" }), {
+  await handleEvent(msgEvent({ type: "text", text: "กรอบป้ายอะคริลิคส่งกี่วันถึงครับ" }), {
     line, adminUserId: "UADMIN", getFaq: async () => "faq", getImageSets: async () => sampleSets(), ask: async () => { throw HIGH_DEMAND; },
   });
   const texts = sent[0].texts;

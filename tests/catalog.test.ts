@@ -303,3 +303,22 @@ test("รูปลบพื้นหลัง: ใช้เมื่อรูป
   CLEAN_PHOTOS[ids[0]] = h;
   try { assert.equal(cleanPhotoPath(ids[0], body), `/products/${ids[0]}.jpg`); } finally { CLEAN_PHOTOS[ids[0]] = fake[ids[0]]; }
 });
+
+test("ถามกันน้ำ → ตอบข้อความที่จักรเขียนทุกตัวอักษร (ไม่เรียก AI) · แจ้งปัญหาน้ำเข้า → ยังไปทาง AI/แอดมิน", async () => {
+  for (const q of ["กันน้ำไหม", "กรอบป้ายอะคริลิคกันน้ำไหม", "อันนี้กันน้ำได้ปะครับ", "ฝนตกน้ำเข้าไหมครับ", "น้ำซึมได้มั้ย"]) {
+    const { line, sent } = fakeLine();
+    await handleEvent(msgEvent(q), { line, getImageSets: async () => sampleSets(), ask: noAsk });
+    const msg = sent[0].texts[0];
+    assert.match(msg.text, /^🔹 กรอบป้ายอะคริลิค\n• กันสิ่งสกปรก กันฝน ได้ครับ/, q);
+    assert.match(msg.text, /ทางร้านทำเรื่องเคลมให้ได้ครับ ✅\n\n🔹 กรอบป้ายสแตนเลส \/ เหล็กพ่นสี \+ แผ่นอะคริลิคใส/, q);
+    assert.match(msg.text, /ไม่ได้รับประกันว่ากันน้ำได้ 100% ครับ 🙏$/, q);
+    assert.ok(!msg.text.includes("\\u"), "อีโมจิต้องเป็นตัวจริง");
+  }
+  // แจ้งปัญหา (ไม่ได้ถาม) → ไม่ใช้คำตอบสำเร็จรูป
+  for (const q of ["ล้างรถแล้วน้ำเข้าครับ", "มีไอน้ำด้านใน"]) {
+    let asked = false;
+    const { line } = fakeLine();
+    await handleEvent(msgEvent(q), { line, getFaq: async () => "faq", getImageSets: async () => sampleSets(), ask: async () => { asked = true; return { reply: "รบกวนขอรูปหน่อยครับ", needsAdmin: true, adminNote: "" }; } });
+    assert.ok(asked, q);
+  }
+});
