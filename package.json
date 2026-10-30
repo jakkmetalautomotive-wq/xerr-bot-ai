@@ -5,7 +5,7 @@
   "description": "บอท LINE OA ของ XERR AUTOTEAM — ตอบลูกค้าด้วย Gemini จาก FAQ ใน Google Sheet",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/check-build.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts"
