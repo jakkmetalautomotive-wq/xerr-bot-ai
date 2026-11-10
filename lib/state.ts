@@ -68,3 +68,20 @@ export const hasPersistentState = Boolean(REDIS_URL && REDIS_TOKEN);
 const localMemory = memoryStore();
 export const defaultState: StateStore = hasPersistentState ? redisStore(REDIS_URL, REDIS_TOKEN, localMemory) : localMemory;
 export const _resetLocalState = () => localMemory.clear(); // ใช้ในเทสต์
+
+// /api/health: เช็คว่าต่อ Redis ได้จริง (ไม่แสดงคีย์)
+export async function stateHealth(fetchFn: FetchFn = fetch as FetchFn): Promise<{ persistent: boolean; ok: boolean | null; error?: string }> {
+  if (!hasPersistentState) return { persistent: false, ok: null };
+  try {
+    const res = await fetchFn(REDIS_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify(["PING"]),
+      signal: AbortSignal.timeout(3_000),
+    });
+    const data = (await res.json()) as { result?: unknown; error?: string };
+    return data.result === "PONG" ? { persistent: true, ok: true } : { persistent: true, ok: false, error: String(data.error ?? res.status).slice(0, 200) };
+  } catch (e) {
+    return { persistent: true, ok: false, error: String((e as Error).message).slice(0, 200) };
+  }
+}

@@ -6,6 +6,7 @@ import { getFaq, sheetUrls } from "@/lib/sheet.ts";
 import { MODEL, FALLBACK_MODEL, THINKING, askGemini } from "@/lib/gemini.ts";
 import { bangkokClock } from "@/lib/shop.ts";
 import { getImageSets } from "@/lib/images.ts";
+import { stateHealth } from "@/lib/state.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,9 @@ export async function GET(req: Request) {
 
   // ชุดการ์ดรูป (จากแท็บ "รูปสินค้า" หรือชุดตัวอย่าง)
   out.imageSets = (await getImageSets()).map((s) => ({ name: s.name, cards: s.items.length, sample: s.items[0]?.image.includes("/samples/") }));
+
+  // ความจำถาวร (Upstash Redis) — ช่วงพัก 10 นาที / โปรรีวิว 30 วัน
+  out.state = await stateHealth();
 
   const params = new URL(req.url).searchParams;
   // เช็ค Gemini กินโควตาคีย์ → ต้องตั้ง HEALTH_KEY ใน Vercel แล้วแนบ ?key=... ให้ตรง (ไม่ตั้ง = ปิดไว้)
