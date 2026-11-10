@@ -92,12 +92,13 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   const state = deps.state ?? defaultState;
   const isCustomer = userId !== deps.adminUserId;
   // ส่งเรื่องให้แอดมินไปแล้วไม่เกิน 10 นาที → เงียบกับข้อความที่พิมพ์เอง (กันตอบซ้ำจนดูเหมือนสแปม)
-  const muted = isCustomer && (await state.get(muteKey(userId))) !== null;
+  // ใช้กับบัญชีแอดมินด้วย → ทดสอบจากมือถือตัวเองแล้วเห็นเหมือนลูกค้า
+  const muted = (await state.get(muteKey(userId))) !== null;
 
   if (msg.type === "image" || msg.type === "file" || msg.type === "video") {
     // ช่วงพัก: ส่งรูปเข้าแชทแอดมินตามปกติ แต่ไม่ตอบ "ได้รับรูปแล้ว" ซ้ำ
     if (!muted) await send(deps, replyToken, userId, [IMAGE_REPLY, adminNotice()]);
-    if (isCustomer) await state.set(muteKey(userId), "1", MUTE_SECONDS);
+    await state.set(muteKey(userId), "1", MUTE_SECONDS);
     // รูป → ส่งรูปนั้นเข้าแชทแอดมินด้วย (ดูสลิปแล้วกด ✅ ได้เลย) · ไฟล์ / วิดีโอ → แจ้งให้ไปดูใน OA Manager
     const image = msg.type === "image" && deps.orderSecret ? slipImageMessage(msg, deps.orderSecret) : null;
     await notifyAdmin(
@@ -166,7 +167,7 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   }
   if (question.trim() === MENU.admin) {
     await send(deps, replyToken, userId, ["รับทราบครับ 🙏 แจ้งแอดมินให้แล้ว", adminNotice()]);
-    if (isCustomer) await state.set(muteKey(userId), "1", MUTE_SECONDS);
+    await state.set(muteKey(userId), "1", MUTE_SECONDS);
     await notifyAdmin(deps, userId, "ลูกค้ากดปุ่ม \"คุยกับแอดมิน\"");
     return;
   }
@@ -217,7 +218,7 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   await send(deps, replyToken, userId, out);
   if (answer.reply !== ERROR_REPLY) addTurn(userId, question, set ? `${answer.reply}\n[ส่งการ์ดรูปชุด "${set.name}" ให้ลูกค้าเลือกแล้ว]` : answer.reply);
   if (answer.needsAdmin) {
-    if (isCustomer) await state.set(muteKey(userId), "1", MUTE_SECONDS);
+    await state.set(muteKey(userId), "1", MUTE_SECONDS);
     await notifyAdmin(deps, userId, answer.adminNote || (answer.reply === DEFAULT_REPLY ? `คำถามที่ไม่มีใน FAQ: ${question}` : question));
   }
 }

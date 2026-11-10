@@ -558,7 +558,7 @@ test("ส่งเรื่องให้แอดมินแล้ว → 10 
   assert.equal(asks, 3);
 });
 
-test("ตอบปกติ (ไม่ต้องใช้แอดมิน) → ไม่เข้าช่วงพัก · แอดมินพิมพ์เองไม่โดนพัก", async () => {
+test("ตอบปกติ (ไม่ต้องใช้แอดมิน) → ไม่เข้าช่วงพัก", async () => {
   const state = memoryStore();
   const { line } = fakeLine();
   let asks = 0;
@@ -566,7 +566,19 @@ test("ตอบปกติ (ไม่ต้องใช้แอดมิน) �
   await handleEvent(msgEvent({ type: "text", text: "a" }), deps);
   await handleEvent(msgEvent({ type: "text", text: "b" }), deps);
   assert.equal(asks, 2);
-  assert.equal(await state.get("mute:UADMIN"), null);
+  assert.equal(await state.get("mute:U1"), null);
+});
+
+test("บัญชีแอดมินทดสอบเอง → โดนพัก 10 นาทีเหมือนลูกค้า (เห็นผลเหมือนกัน)", async () => {
+  const state = memoryStore();
+  const { line, sent } = fakeLine();
+  let asks = 0;
+  const deps = { line, adminUserId: "UADMIN", state, getFaq: async () => "faq", getImageSets: async () => [], ask: async () => (asks++, { reply: "ขอให้แอดมินตรวจสอบ", needsAdmin: true, adminNote: "" }) };
+  await handleEvent(msgEvent({ type: "text", text: "มันหลุด" }, "UADMIN"), deps);
+  const n = sent.length;
+  await handleEvent(msgEvent({ type: "text", text: "มันหลุด" }, "UADMIN"), deps);
+  assert.equal(asks, 1);
+  assert.equal(sent.length, n);
 });
 
 test("Upstash Redis: ส่งคำสั่ง GET/SET EX พร้อม token · Redis ล่ม → ใช้หน่วยความจำสำรอง", async () => {
