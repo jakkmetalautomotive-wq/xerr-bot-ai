@@ -1,5 +1,7 @@
 // บันทึกออเดอร์ลง Google Sheet (ผ่าน Apps Script) — รัน: npm test
-import { test } from "node:test";
+import { test, beforeEach } from "node:test";
+import { _resetLocalState } from "../lib/state.ts";
+beforeEach(() => _resetLocalState());
 import assert from "node:assert/strict";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { encodePostback, priceOrder } from "../lib/order.ts";
@@ -60,12 +62,11 @@ test("แอดมินกด ✅ / ❌ → อัปเดตสถานะ�
 });
 
 test("ลูกค้าทักครั้งแรก → ต่อท้ายคำตอบด้วยโปรรีวิว 50.- (ครั้งเดียว) · มีปุ่มด่วน → แทรกก่อนปุ่ม · แอดมินไม่ได้", async () => {
-  const { _resetGreeted } = await import("../lib/bot.ts");
   const { MENU, REVIEW_PROMO } = await import("../lib/shop.ts");
-  _resetGreeted();
+  const { memoryStore } = await import("../lib/state.ts");
   const sent: any[] = [];
   const line: LinePort = { reply: async (to, texts) => void sent.push({ to, texts }), push: async () => {}, showLoading: async () => {}, displayName: async () => "" };
-  const deps = { line, adminUserId: "UADMIN", reviewPromo: true, getImageSets: async () => sampleSets(), ask: async () => { throw new Error("ไม่ควรเรียก AI"); } };
+  const deps = { line, adminUserId: "UADMIN", reviewPromo: true, state: memoryStore(), getImageSets: async () => sampleSets(), ask: async () => { throw new Error("ไม่ควรเรียก AI"); } };
   const msg = (text: string, userId = "UNEW") => ({ type: "message", source: { type: "user", userId }, replyToken: "rt", message: { type: "text", text } }) as any;
 
   await handleEvent(msg(MENU.promo), deps); // ข้อความสุดท้ายมีปุ่มด่วน "🛒 สั่งซื้อ"
@@ -79,7 +80,6 @@ test("ลูกค้าทักครั้งแรก → ต่อท้า
   assert.ok(!sent.at(-1).texts.includes(REVIEW_PROMO));
   await handleEvent(msg(MENU.design, "UADMIN"), deps); // แอดมินทดสอบเอง → ไม่ส่ง
   assert.ok(!sent.at(-1).texts.includes(REVIEW_PROMO));
-  _resetGreeted();
 });
 
 test("แอดมินกด ✅ → การ์ดยืนยันถึงลูกค้า: เลขพัสดุหลัง 2 ทุ่ม + เตือนรีวิว + ปุ่ม 📦 ขอเลขพัสดุ", async () => {
@@ -114,7 +114,7 @@ test("ลูกค้ากด 📦 ขอเลขพัสดุ: มีเล
   assert.equal(sent.length, n, "ไม่ส่งเลขพัสดุของคนอื่น");
 
   await press(async () => ({ ok: true, found: true, tracking: "", lineUserId: "UCUST" }));
-  assert.match(sent.at(-1).texts[0] ?? sent.at(-2).texts[0], /ยังไม่มีเลขพัสดุ/);
+  assert.match(sent.filter((x) => x.to !== "UADMIN").at(-1).texts[0], /ยังไม่มีเลขพัสดุ/); // ก่อน/หลัง 2 ทุ่มก็ต้องบอกลูกค้า
 });
 
 test("แอดมินพิมพ์เลขพัสดุหลายบรรทัด → ลงชีททีละออเดอร์ + สรุปผล · ข้อความทั่วไป/ลูกค้าพิมพ์ → ไม่ใช่คำสั่ง", async () => {

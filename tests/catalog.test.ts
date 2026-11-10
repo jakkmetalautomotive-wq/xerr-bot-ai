@@ -1,6 +1,8 @@
 // การ์ดประเภทสินค้า 7 ใบ + ขั้นตอนต่อสินค้า + ป้ายภาษีอย่างเดียว + ปุ่ม Rich Menu — รัน: npm test
 import { upsellChoice } from "./helpers.ts";
-import { test } from "node:test";
+import { test, beforeEach } from "node:test";
+import { _resetLocalState } from "../lib/state.ts";
+beforeEach(() => _resetLocalState());
 import assert from "node:assert/strict";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets, choiceText, CATEGORY_SET, buildQuickReply, isQuickSet, firstStepSet, parseImageSets, buildCarousel, parseLinkColumn, installSet, reviewSet, REVIEW_SET } from "../lib/images.ts";
@@ -319,6 +321,7 @@ test("ถามกันน้ำ → ตอบข้อความที่จ
   }
   // แจ้งปัญหา (ไม่ได้ถาม) → ไม่ใช้คำตอบสำเร็จรูป
   for (const q of ["ล้างรถแล้วน้ำเข้าครับ", "มีไอน้ำด้านใน"]) {
+    _resetLocalState(); // ข้อแรกส่งเรื่องให้แอดมิน → เริ่มช่วงพัก 10 นาที
     let asked = false;
     const { line } = fakeLine();
     await handleEvent(msgEvent(q), { line, getFaq: async () => "faq", getImageSets: async () => sampleSets(), ask: async () => { asked = true; return { reply: "รบกวนขอรูปหน่อยครับ", needsAdmin: true, adminNote: "" }; } });

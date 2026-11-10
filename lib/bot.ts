@@ -13,6 +13,7 @@ import {
   decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
 } from "./order.ts";
 import { slipImageMessage } from "./slip.ts";
+import { defaultState, type StateStore } from "./state.ts";
 import { logOrder, statusEvent, ORDER_STATUS, setTracking, getTracking, parseTrackingLines, type OrderLogEvent, type TrackingInfo } from "./orderlog.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
@@ -43,6 +44,8 @@ export interface BotDeps {
   // เลขพัสดุในชีทออเดอร์ (ทดสอบสลับเป็นตัวปลอมได้)
   setTracking?: (code: string, tracking: string) => Promise<boolean>;
   getTracking?: (code: string) => Promise<TrackingInfo | null>;
+  // ความจำถาวร (ช่วงพัก/โปรรีวิว) · ไม่ใส่ = Upstash ถ้าตั้งไว้ ไม่งั้นหน่วยความจำชั่วคราว
+  state?: StateStore;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
@@ -86,8 +89,15 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     return;
   }
 
+  const state = deps.state ?? defaultState;
+  const isCustomer = userId !== deps.adminUserId;
+  // ส่งเรื่องให้แอดมินไปแล้วไม่เกิน 10 นาที → เงียบกับข้อความที่พิมพ์เอง (กันตอบซ้ำจนดูเหมือนสแปม)
+  const muted = isCustomer && (await state.get(muteKey(userId))) !== null;
+
   if (msg.type === "image" || msg.type === "file" || msg.type === "video") {
-    await send(deps, replyToken, userId, [IMAGE_REPLY, adminNotice()]);
+    // ช่วงพัก: ส่งรูปเข้าแชทแอดมินตามปกติ แต่ไม่ตอบ "ได้รับรูปแล้ว" ซ้ำ
+    if (!muted) await send(deps, replyToken, userId, [IMAGE_REPLY, adminNotice()]);
+    if (isCustomer) await state.set(muteKey(userId), "1", MUTE_SECONDS);
     // รูป → ส่งรูปนั้นเข้าแชทแอดมินด้วย (ดูสลิปแล้วกด ✅ ได้เลย) · ไฟล์ / วิดีโอ → แจ้งให้ไปดูใน OA Manager
     const image = msg.type === "image" && deps.orderSecret ? slipImageMessage(msg, deps.orderSecret) : null;
     await notifyAdmin(
@@ -102,10 +112,13 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   const question = msg.type === "text" ? msg.text : msg.type === "sticker" ? STICKER : null;
   if (!question) return; // ตำแหน่งที่ตั้ง / เสียง ฯลฯ — ปล่อยให้แอดมินดูเอง
 
-  // ลูกค้าทักครั้งแรก (วันละครั้งต่อคน) → ต่อท้ายคำตอบด้วยโปรรีวิว
-  if (deps.reviewPromo && userId !== deps.adminUserId && !recentlyGreeted(userId)) deps = withReviewPromo(deps, userId);
+  // ลูกค้าทักครั้งแรกของเดือน → ต่อท้ายคำตอบด้วยโปรรีวิว (ช่วงพักไม่ส่ง)
+  if (deps.reviewPromo && isCustomer && !muted && (await state.get(greetKey(userId))) === null) {
+    await state.set(greetKey(userId), "1", GREET_SECONDS);
+    deps = withReviewPromo(deps);
+  }
 
-  await deps.line.showLoading(userId).catch(() => {});
+  if (!muted) await deps.line.showLoading(userId).catch(() => {});
 
   const faqPromise = (deps.getFaq ?? getFaq)();
   faqPromise.catch(() => {}); // error จัดการด้านล่าง
@@ -153,6 +166,7 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   }
   if (question.trim() === MENU.admin) {
     await send(deps, replyToken, userId, ["รับทราบครับ 🙏 แจ้งแอดมินให้แล้ว", adminNotice()]);
+    if (isCustomer) await state.set(muteKey(userId), "1", MUTE_SECONDS);
     await notifyAdmin(deps, userId, "ลูกค้ากดปุ่ม \"คุยกับแอดมิน\"");
     return;
   }
@@ -176,6 +190,12 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     if (product && (await startOrder(deps, replyToken, userId, sets, product, choice.picked, question))) return;
   }
 
+  // ช่วงพักหลังส่งเรื่องให้แอดมิน: ข้อความที่พิมพ์เอง → ไม่ตอบ (แอดมินเห็นใน OA Manager) · กดการ์ดเลือกแบบยังตอบปกติ
+  if (muted && !choice) {
+    console.log(`[bot] พักตอบ ${userId.slice(0, 8)}… (ส่งเรื่องให้แอดมินแล้ว ไม่เกิน ${MUTE_SECONDS / 60} นาที)`);
+    return;
+  }
+
   let answer: BotAnswer;
   try {
     answer = await (deps.ask ?? defaultAsk)(await faqPromise, question, userId, sets.map((s) => s.name));
@@ -196,7 +216,10 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   if (answer.reply === ERROR_REPLY) out = withMenuButtons(out);
   await send(deps, replyToken, userId, out);
   if (answer.reply !== ERROR_REPLY) addTurn(userId, question, set ? `${answer.reply}\n[ส่งการ์ดรูปชุด "${set.name}" ให้ลูกค้าเลือกแล้ว]` : answer.reply);
-  if (answer.needsAdmin) await notifyAdmin(deps, userId, answer.adminNote || (answer.reply === DEFAULT_REPLY ? `คำถามที่ไม่มีใน FAQ: ${question}` : question));
+  if (answer.needsAdmin) {
+    if (isCustomer) await state.set(muteKey(userId), "1", MUTE_SECONDS);
+    await notifyAdmin(deps, userId, answer.adminNote || (answer.reply === DEFAULT_REPLY ? `คำถามที่ไม่มีใน FAQ: ${question}` : question));
+  }
 }
 
 // ปุ่ม: ลูกค้าตอบเรื่องป้ายภาษี → ส่งสรุปยอด · แอดมินกดยืนยัน/ยอดไม่ตรง → แจ้งลูกค้า
@@ -319,19 +342,19 @@ function defaultAsk(faq: string, question: string, userId: string, imageSets: st
 }
 
 // ตอบด้วย reply token ก่อน (ฟรี) ถ้าไม่ได้ค่อย push
-// โปรรีวิวสำหรับลูกค้าที่ทักครั้งแรก — จำในหน่วยความจำ (ไม่มีฐานข้อมูล): ไม่ส่งซ้ำภายใน 24 ชม. ถ้าเครื่อง serverless ยังอุ่นอยู่
-const GREET_TTL_MS = 24 * 60 * 60_000;
-const greetedAt = new Map<string, number>();
-export const _resetGreeted = () => greetedAt.clear();
-const recentlyGreeted = (userId: string, now = Date.now()) => now - (greetedAt.get(userId) ?? 0) < GREET_TTL_MS;
+// ความจำถาวร (lib/state.ts): โปรรีวิวส่งครั้งเดียวต่อลูกค้าต่อ 30 วัน · ช่วงพักหลังส่งเรื่องให้แอดมิน 10 นาที
+export const MUTE_SECONDS = 10 * 60;
+const GREET_SECONDS = 30 * 24 * 60 * 60;
+const muteKey = (userId: string) => `mute:${userId}`;
+const greetKey = (userId: string) => `greet:${userId}`;
 
-// แทรก REVIEW_PROMO ในข้อความที่ตอบลูกค้าคนนี้ (ครั้งเดียว) · ข้อความสุดท้ายมีปุ่มด่วน → แทรกก่อน (ปุ่มด่วนแสดงใต้ข้อความสุดท้ายเท่านั้น)
-// LINE ส่งได้ไม่เกิน 5 ข้อความต่อครั้ง → เต็มแล้วไว้ทักครั้งหน้า
-function withReviewPromo(deps: BotDeps, userId: string): BotDeps {
+// แทรก REVIEW_PROMO ในคำตอบครั้งแรก (ครั้งเดียว) · ข้อความสุดท้ายมีปุ่มด่วน → แทรกก่อน (ปุ่มด่วนแสดงใต้ข้อความสุดท้ายเท่านั้น)
+// LINE ส่งได้ไม่เกิน 5 ข้อความต่อครั้ง → เต็มแล้วข้ามไป
+function withReviewPromo(deps: BotDeps): BotDeps {
+  let done = false;
   const add = (messages: OutMessage[]): OutMessage[] => {
-    if (recentlyGreeted(userId) || messages.length >= 5) return messages;
-    greetedAt.set(userId, Date.now());
-    if (greetedAt.size > 20_000) greetedAt.delete(greetedAt.keys().next().value!);
+    if (done || messages.length >= 5) return messages;
+    done = true;
     const last = messages[messages.length - 1];
     const hasQuickReply = typeof last === "object" && last !== null && "quickReply" in last;
     return hasQuickReply ? [...messages.slice(0, -1), REVIEW_PROMO, last] : [...messages, REVIEW_PROMO];
@@ -341,7 +364,7 @@ function withReviewPromo(deps: BotDeps, userId: string): BotDeps {
     line: {
       ...deps.line,
       reply: (token, messages) => deps.line.reply(token, add(messages)),
-      push: (to, messages) => deps.line.push(to, to === userId ? add(messages) : messages),
+      push: (to, messages) => deps.line.push(to, to === deps.adminUserId ? messages : add(messages)),
     },
   };
 }

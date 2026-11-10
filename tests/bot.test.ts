@@ -1,6 +1,8 @@
 // ทดสอบแบบไม่ต้องใช้เน็ต/คีย์ — รัน: npm test
 import { upsellChoice } from "./helpers.ts";
-import { test } from "node:test";
+import { test, beforeEach } from "node:test";
+import { _resetLocalState } from "../lib/state.ts";
+beforeEach(() => _resetLocalState());
 import assert from "node:assert/strict";
 import { FinishReason } from "@google/genai";
 import { parseCsv, csvToFaqText, getFaq, sheetUrls, _resetSheetCache } from "../lib/sheet.ts";
@@ -190,8 +192,11 @@ test("ลูกค้าส่งสลิป (รูป) → ส่งรูป
   assert.equal(verifySlip(t, "other"), null);
   assert.equal(verifySlip("598765432101", "secret"), null);
   // ไฟล์ PDF → แจ้งแอดมินด้วยข้อความอย่างเดียว
+  // ไฟล์ถัดมาในช่วงพัก 10 นาที → ไม่ตอบ "ได้รับรูปแล้ว" ซ้ำ แต่ยังส่งต่อแอดมิน
   await handleEvent(msgEvent({ type: "file", id: "2", fileName: "a.pdf" }), deps);
-  assert.equal(sent[3].texts.length, 1);
+  assert.equal(sent.length, 3);
+  assert.equal(sent[2].to, "UADMIN");
+  assert.equal(sent[2].texts.length, 1);
 });
 
 // ---------- การ์ดรูป ----------
@@ -524,4 +529,62 @@ test("โควตาฟรีเต็ม (429): ไล่รุ่นสำร
   await askGemini("faq", [], "q2", "now", opts(g2.fn));
   assert.deepEqual(g2.calls.map((c) => c.model), ["gemini-c"]); // a, b เต็ม → ข้าม ไม่เสียโควตา/เวลา
   _resetQuotaMemory();
+});
+
+// ---------- ช่วงพักหลังส่งเรื่องให้แอดมิน + ความจำถาวร ----------
+import { memoryStore, redisStore } from "../lib/state.ts";
+
+test("ส่งเรื่องให้แอดมินแล้ว → 10 นาทีไม่ตอบข้อความที่พิมพ์ซ้ำ (ไม่เรียก AI) · ปุ่มเมนูยังตอบ · ลูกค้าคนอื่นไม่โดน · ครบ 10 นาทีตอบใหม่", async () => {
+  let t = 0;
+  const state = memoryStore(() => t);
+  const { line, sent } = fakeLine();
+  let asks = 0;
+  const deps = { line, adminUserId: "UADMIN", state, getFaq: async () => "faq", getImageSets: async () => [], ask: async () => (asks++, { reply: "ยินดีครับผม", needsAdmin: true, adminNote: "" }) };
+
+  await handleEvent(msgEvent({ type: "text", text: "มีโปรไหม" }), deps);
+  assert.equal(asks, 1);
+  const n = sent.length;
+  for (const text of ["มีโปรไหม", "มีโปรไหม", "ครับ"]) await handleEvent(msgEvent({ type: "text", text }), deps);
+  assert.equal(asks, 1, "ช่วงพักไม่เรียก AI");
+  assert.equal(sent.length, n, "ช่วงพักไม่ส่งอะไรเลย");
+
+  await handleEvent(msgEvent({ type: "text", text: MENU.promo }), deps); // กดเมนูเอง → ยังตอบ
+  assert.equal(sent.length, n + 1);
+  await handleEvent(msgEvent({ type: "text", text: "สวัสดี" }, "U2"), deps); // คนอื่น → ปกติ
+  assert.equal(asks, 2);
+
+  t += 10 * 60_000; // ครบ 10 นาที
+  await handleEvent(msgEvent({ type: "text", text: "ยังรออยู่ครับ" }), deps);
+  assert.equal(asks, 3);
+});
+
+test("ตอบปกติ (ไม่ต้องใช้แอดมิน) → ไม่เข้าช่วงพัก · แอดมินพิมพ์เองไม่โดนพัก", async () => {
+  const state = memoryStore();
+  const { line } = fakeLine();
+  let asks = 0;
+  const deps = { line, adminUserId: "UADMIN", state, getFaq: async () => "faq", getImageSets: async () => [], ask: async () => (asks++, { reply: "ok", needsAdmin: false, adminNote: "" }) };
+  await handleEvent(msgEvent({ type: "text", text: "a" }), deps);
+  await handleEvent(msgEvent({ type: "text", text: "b" }), deps);
+  assert.equal(asks, 2);
+  assert.equal(await state.get("mute:UADMIN"), null);
+});
+
+test("Upstash Redis: ส่งคำสั่ง GET/SET EX พร้อม token · Redis ล่ม → ใช้หน่วยความจำสำรอง", async () => {
+  const calls: any[] = [];
+  const db = new Map<string, string>();
+  const fake = async (url: string, init: RequestInit) => {
+    const args = JSON.parse(String(init.body));
+    calls.push({ url, auth: (init.headers as any).Authorization, args });
+    if (args[0] === "SET") db.set(args[1], args[2]);
+    return new Response(JSON.stringify({ result: args[0] === "GET" ? db.get(args[1]) ?? null : "OK" }));
+  };
+  const s = redisStore("https://r.example", "tok", memoryStore(), fake);
+  await s.set("mute:U1", "1", 600);
+  assert.equal(await s.get("mute:U1"), "1");
+  assert.equal(await s.get("mute:U9"), null);
+  assert.deepEqual(calls[0], { url: "https://r.example", auth: "Bearer tok", args: ["SET", "mute:U1", "1", "EX", 600] });
+
+  const broken = redisStore("https://r.example", "tok", memoryStore(), async () => { throw new Error("down"); });
+  await broken.set("greet:U1", "1", 60);
+  assert.equal(await broken.get("greet:U1"), "1");
 });
