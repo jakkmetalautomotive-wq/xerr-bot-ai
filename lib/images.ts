@@ -123,8 +123,8 @@ export function sampleSets(): ImageSet[] {
         ["สีเทา ไร้เส้นขอบ", acrylicPrice, "gray-noborder.png", "สีเรียบ"],
         ["ลายเคฟล่า ดำ มีเส้นขอบ", acrylicPrice, "kevlar-border.png", "ลายเคฟล่ามีแบบมีเส้นขอบเท่านั้น"],
         // สีใหม่ จักรยืนยัน 12 พ.ย. 2026: พื้นขาว เส้นขอบเขียว / น้ำเงิน · ราคา ขนาด เส้นคาดกลาง เหมือนสีเรียบ
-        ["สีขาว ขอบเขียว", acrylicPrice, "white-border.png", "พื้นขาว เส้นขอบสีเขียว"],
-        ["สีขาว ขอบน้ำเงิน", acrylicPrice, "white-border.png", "พื้นขาว เส้นขอบสีน้ำเงิน"],
+        ["สีขาว เส้นขอบเขียว", acrylicPrice, "white-border.png", "พื้นขาว เส้นขอบสีเขียว"],
+        ["สีขาว เส้นขอบน้ำเงิน", acrylicPrice, "white-border.png", "พื้นขาว เส้นขอบสีน้ำเงิน"],
       ]),
     },
     {
@@ -170,8 +170,8 @@ const byColour = (black: string, white: string): [string, string][] => [["สี
 const acrylic = (p: { black: string; blackNo: string; white: string; whiteNo: string; grey: string; greyNo: string; kevlar: string; extra: string }): [string, string][] => [
   ["สีดำ มีเส้นขอบ", p.black], ["สีดำ ไร้เส้นขอบ", p.blackNo], ["สีขาว มีเส้นขอบ", p.white], ["สีขาว ไร้เส้นขอบ", p.whiteNo],
   ["สีเทา มีเส้นขอบ", p.grey], ["สีเทา ไร้เส้นขอบ", p.greyNo], ["เคฟล่า", p.kevlar],
-  // สีใหม่ (ขอบเขียว / ขอบน้ำเงิน) รูปเก็บในบอท public/products — จักรส่งมาในแชท 12 พ.ย. 2026
-  ["ขอบเขียว", `/products/acrylic-green-${p.extra}.jpg`], ["ขอบน้ำเงิน", `/products/acrylic-blue-${p.extra}.jpg`],
+  // สีใหม่ (เส้นขอบเขียว / เส้นขอบน้ำเงิน) รูปเก็บในบอท public/products — จักรส่งมาในแชท 12 พ.ย. 2026
+  ["เส้นขอบเขียว", `/products/acrylic-green-${p.extra}.jpg`], ["เส้นขอบน้ำเงิน", `/products/acrylic-blue-${p.extra}.jpg`],
 ];
 const REAL_PHOTOS: Record<string, Record<string, string | [string, string][]>> = {
   // การ์ดประเภทสินค้า: ภาพปก "กรอบป้าย…" ที่ร้านทำ — Drive โฟลเดอร์ 16G9HWg0H7gjxG2L44Zx2t5VewyBCz_hZ (30 ต.ค. 2026)
@@ -198,8 +198,8 @@ const REAL_PHOTOS: Record<string, Record<string, string | [string, string][]>> =
     "สีเทา มีเส้นขอบ": "1n0xoAFjp5HDd8t_bJ59ZDZieHgcBFCyT",
     "สีเทา ไร้เส้นขอบ": "14RPn5ODPEMbqh0Mbqaqz-V6yuYWH-pFn",
     "ลายเคฟล่า ดำ มีเส้นขอบ": "15UyD2nLQugAuI4-F8Ezdkz3YpnrfbwRe",
-    "สีขาว ขอบเขียว": "/products/acrylic-green-step1-colour.jpg",
-    "สีขาว ขอบน้ำเงิน": "/products/acrylic-blue-step1-colour.jpg",
+    "สีขาว เส้นขอบเขียว": "/products/acrylic-green-step1-colour.jpg",
+    "สีขาว เส้นขอบน้ำเงิน": "/products/acrylic-blue-step1-colour.jpg",
   },
   "อะคริลิค ขั้น 2 เลือกขนาด": {
     "สั้น-สั้น": acrylic({

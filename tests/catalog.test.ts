@@ -121,13 +121,13 @@ test("อะคริลิค: รูปขั้นขนาด / เส้น
   assert.deepEqual(ids("อะคริลิค ขั้น 2 เลือกขนาด", ["ลายเคฟล่า ดำ มีเส้นขอบ"]), ["1EvnP_5z-CX7w7BdNBm3F3Xpl4c3NFzVY", "17jNY6cKQtBJBgaCV610H9-oxVBvsqPLx", "10tdDU2byg_VYzM3Wc1C-A6u_UF24ReAt"]);
 });
 
-test("อะคริลิคสีใหม่ ขอบเขียว / ขอบน้ำเงิน: รูปทุกขั้นเป็นของสีนั้น (ไฟล์ในบอท) · ราคาเท่าสีเรียบ", () => {
+test("อะคริลิคสีใหม่ เส้นขอบเขียว / เส้นขอบน้ำเงิน: รูปทุกขั้นเป็นของสีนั้น (ไฟล์ในบอท) · ราคาเท่าสีเรียบ", () => {
   const urls = (setName: string, picked: string[]) => (buildCarousel(setNamed(setName), picked).contents as any).contents.map((b: any) => b.hero.url as string);
   const file = (u: string) => u.match(/acrylic-[a-z0-9-]+\.jpg/)?.[0];
   const step1 = urls("อะคริลิค ขั้น 1 เลือกสี", []);
   assert.deepEqual(step1.slice(-2).map(file), ["acrylic-green-step1-colour.jpg", "acrylic-blue-step1-colour.jpg"]);
   for (const c of ["green", "blue"] as const) {
-    const pick = c === "green" ? "สีขาว ขอบเขียว" : "สีขาว ขอบน้ำเงิน";
+    const pick = c === "green" ? "สีขาว เส้นขอบเขียว" : "สีขาว เส้นขอบน้ำเงิน";
     assert.deepEqual(urls("อะคริลิค ขั้น 2 เลือกขนาด", [pick]).map(file), [`acrylic-${c}-step2-ss.jpg`, `acrylic-${c}-step1-colour.jpg`, `acrylic-${c}-step2-ll.jpg`]);
     assert.deepEqual(urls("อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง", [pick, "สั้น-ยาว"]).map(file), [`acrylic-${c}-step3-center-yes.jpg`, `acrylic-${c}-step1-colour.jpg`]);
   }
@@ -136,8 +136,8 @@ test("อะคริลิคสีใหม่ ขอบเขียว / ข�
   assert.ok(!urls("อะคริลิค ขั้น 2 เลือกขนาด", ["สีขาว มีเส้นขอบ"]).some((u: string) => u.includes("acrylic-")));
   const sets = sampleSets();
   const total = (picks: string[]) => priceOrder(sets, { code: "x", product: "อะคริลิค", picks, tax: false })?.total;
-  assert.equal(total(["สีขาว ขอบเขียว", "สั้น-สั้น", "มีเส้นคาดกลาง"]), 429);
-  assert.equal(total(["สีขาว ขอบน้ำเงิน", "ยาว-ยาว", "ไม่มีเส้นคาดกลาง"]), 449);
+  assert.equal(total(["สีขาว เส้นขอบเขียว", "สั้น-สั้น", "มีเส้นคาดกลาง"]), 429);
+  assert.equal(total(["สีขาว เส้นขอบน้ำเงิน", "ยาว-ยาว", "ไม่มีเส้นคาดกลาง"]), 449);
 });
 
 test("ราคาจากการ์ดประเภทสินค้า: ABS 199 · รถตู้/บรรทุก 399 · สแตนเลส 279/319", () => {
