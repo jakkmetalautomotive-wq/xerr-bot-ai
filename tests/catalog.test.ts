@@ -4,6 +4,7 @@ import { test, beforeEach } from "node:test";
 import { _resetLocalState } from "../lib/state.ts";
 beforeEach(() => _resetLocalState());
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets, choiceText, CATEGORY_SET, buildQuickReply, isQuickSet, firstStepSet, parseImageSets, buildCarousel, parseLinkColumn, installSet, reviewSet, REVIEW_SET } from "../lib/images.ts";
 import { priceOrder, decodePostback, orderSummaryText, verifyOrder } from "../lib/order.ts";
@@ -118,6 +119,25 @@ test("อะคริลิค: รูปขั้นขนาด / เส้น
   assert.deepEqual(ids("อะคริลิค ขั้น 2 เลือกขนาด", ["สีเทา มีเส้นขอบ"]), ["1LRc1yj2Q_bgUm1qsqwf9FWuSBU8V_SpL", "1BtRbn3P39BJrXeGwoxK2bICNODa-umJR", "1xa-8_-G_VeOUoa35pkOgfXbWhz4-FFfU"]);
   assert.deepEqual(ids("อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง", ["สีขาว ไร้เส้นขอบ", "สั้น-ยาว"]), ["1ORK9I7P2cVTKm92lh_kjPFt0mh6Cv0sP", "1CqCAdaXC5GpIqWyKqtrT49joR0_EjDVu"]);
   assert.deepEqual(ids("อะคริลิค ขั้น 2 เลือกขนาด", ["ลายเคฟล่า ดำ มีเส้นขอบ"]), ["1EvnP_5z-CX7w7BdNBm3F3Xpl4c3NFzVY", "17jNY6cKQtBJBgaCV610H9-oxVBvsqPLx", "10tdDU2byg_VYzM3Wc1C-A6u_UF24ReAt"]);
+});
+
+test("อะคริลิคสีใหม่ ขอบเขียว / ขอบน้ำเงิน: รูปทุกขั้นเป็นของสีนั้น (ไฟล์ในบอท) · ราคาเท่าสีเรียบ", () => {
+  const urls = (setName: string, picked: string[]) => (buildCarousel(setNamed(setName), picked).contents as any).contents.map((b: any) => b.hero.url as string);
+  const file = (u: string) => u.match(/acrylic-[a-z0-9-]+\.jpg/)?.[0];
+  const step1 = urls("อะคริลิค ขั้น 1 เลือกสี", []);
+  assert.deepEqual(step1.slice(-2).map(file), ["acrylic-green-step1-colour.jpg", "acrylic-blue-step1-colour.jpg"]);
+  for (const c of ["green", "blue"] as const) {
+    const pick = c === "green" ? "สีขาว ขอบเขียว" : "สีขาว ขอบน้ำเงิน";
+    assert.deepEqual(urls("อะคริลิค ขั้น 2 เลือกขนาด", [pick]).map(file), [`acrylic-${c}-step2-ss.jpg`, `acrylic-${c}-step1-colour.jpg`, `acrylic-${c}-step2-ll.jpg`]);
+    assert.deepEqual(urls("อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง", [pick, "สั้น-ยาว"]).map(file), [`acrylic-${c}-step3-center-yes.jpg`, `acrylic-${c}-step1-colour.jpg`]);
+  }
+  for (const f of ["green", "blue"].flatMap((c) => ["step1-colour", "step2-ss", "step2-ll", "step3-center-yes"].map((s) => `public/products/acrylic-${c}-${s}.jpg`))) assert.ok(existsSync(f), f);
+  // สีขาวเดิมยังได้รูปเดิม (ไม่โดนสีใหม่แย่ง)
+  assert.ok(!urls("อะคริลิค ขั้น 2 เลือกขนาด", ["สีขาว มีเส้นขอบ"]).some((u: string) => u.includes("acrylic-")));
+  const sets = sampleSets();
+  const total = (picks: string[]) => priceOrder(sets, { code: "x", product: "อะคริลิค", picks, tax: false })?.total;
+  assert.equal(total(["สีขาว ขอบเขียว", "สั้น-สั้น", "มีเส้นคาดกลาง"]), 429);
+  assert.equal(total(["สีขาว ขอบน้ำเงิน", "ยาว-ยาว", "ไม่มีเส้นคาดกลาง"]), 449);
 });
 
 test("ราคาจากการ์ดประเภทสินค้า: ABS 199 · รถตู้/บรรทุก 399 · สแตนเลส 279/319", () => {

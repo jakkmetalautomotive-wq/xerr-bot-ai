@@ -222,13 +222,13 @@ test("ลิงก์ Google Drive → ส่งผ่าน /api/img · ลิ�
   assert.equal(lineImageUrl("https://example.com/a.jpg"), "https://example.com/a.jpg");
 });
 
-test("การ์ดปัดดู (7 สี): ใบละแบบ มีรูป https + ปุ่มเลือกแบบที่ N ที่ส่งข้อความกลับ", () => {
+test("การ์ดปัดดู (9 สี): ใบละแบบ มีรูป https + ปุ่มเลือกแบบที่ N ที่ส่งข้อความกลับ", () => {
   const set = sampleSets()[1];
   const flex = buildCarousel(set);
   assert.equal(flex.type, "flex");
   assert.ok(flex.altText.length <= 400);
   const bubbles = (flex.contents as any).contents;
-  assert.equal(bubbles.length, 7);
+  assert.equal(bubbles.length, 9);
   assert.match(bubbles[0].hero.url, /^https:\/\/.+\/api\/img\?id=1ObHYDZaanBdC3UhtulEtHT41kmFgfrGh&v=5$/); // รูปจริงจาก Drive ผ่าน /api/img
   assert.match(bubbles[6].hero.url, /\/api\/img\?id=15UyD2nLQugAuI4-F8Ezdkz3YpnrfbwRe&v=5$/); // เคฟล่า
   const action = bubbles[3].footer.contents[0].action;
@@ -267,6 +267,7 @@ test("ชุดตัวอย่างอะคริลิค 3 ขั้น: 
   assert.deepEqual(sets.slice(1, 4).map((s) => s.name), ["อะคริลิค ขั้น 1 เลือกสี", "อะคริลิค ขั้น 2 เลือกขนาด", "อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง"]);
   assert.deepEqual(sets[1].items.map((i) => i.name), [
     "สีดำ มีเส้นขอบ", "สีดำ ไร้เส้นขอบ", "สีขาว มีเส้นขอบ", "สีขาว ไร้เส้นขอบ", "สีเทา มีเส้นขอบ", "สีเทา ไร้เส้นขอบ", "ลายเคฟล่า ดำ มีเส้นขอบ",
+    "สีขาว ขอบเขียว", "สีขาว ขอบน้ำเงิน",
   ]);
   assert.deepEqual(sets[2].items.map((i) => [i.name, i.price]), [["สั้น-สั้น", "399.-"], ["สั้น-ยาว", "419.-"], ["ยาว-ยาว", "419.-"]]);
 });

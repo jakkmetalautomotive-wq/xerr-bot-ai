@@ -122,6 +122,9 @@ export function sampleSets(): ImageSet[] {
         ["สีเทา มีเส้นขอบ", acrylicPrice, "gray-border.png", "สีเรียบ"],
         ["สีเทา ไร้เส้นขอบ", acrylicPrice, "gray-noborder.png", "สีเรียบ"],
         ["ลายเคฟล่า ดำ มีเส้นขอบ", acrylicPrice, "kevlar-border.png", "ลายเคฟล่ามีแบบมีเส้นขอบเท่านั้น"],
+        // สีใหม่ จักรยืนยัน 12 พ.ย. 2026: พื้นขาว เส้นขอบเขียว / น้ำเงิน · ราคา ขนาด เส้นคาดกลาง เหมือนสีเรียบ
+        ["สีขาว ขอบเขียว", acrylicPrice, "white-border.png", "พื้นขาว เส้นขอบสีเขียว"],
+        ["สีขาว ขอบน้ำเงิน", acrylicPrice, "white-border.png", "พื้นขาว เส้นขอบสีน้ำเงิน"],
       ]),
     },
     {
@@ -164,9 +167,11 @@ export function sampleSets(): ImageSet[] {
 // แบบที่ไม่มีในตารางนี้ใช้ภาพประกอบเดิม
 const byColour = (black: string, white: string): [string, string][] => [["สีดำ", black], ["สีขาว", white]];
 // อะคริลิค: รูปตามสี + มี/ไร้เส้นขอบ ที่เลือกในขั้น 1 (ไฟล์ที่ไม่ระบุเส้นขอบใน Drive = มีเส้นขอบ)
-const acrylic = (p: { black: string; blackNo: string; white: string; whiteNo: string; grey: string; greyNo: string; kevlar: string }): [string, string][] => [
+const acrylic = (p: { black: string; blackNo: string; white: string; whiteNo: string; grey: string; greyNo: string; kevlar: string; extra: string }): [string, string][] => [
   ["สีดำ มีเส้นขอบ", p.black], ["สีดำ ไร้เส้นขอบ", p.blackNo], ["สีขาว มีเส้นขอบ", p.white], ["สีขาว ไร้เส้นขอบ", p.whiteNo],
   ["สีเทา มีเส้นขอบ", p.grey], ["สีเทา ไร้เส้นขอบ", p.greyNo], ["เคฟล่า", p.kevlar],
+  // สีใหม่ (ขอบเขียว / ขอบน้ำเงิน) รูปเก็บในบอท public/products — จักรส่งมาในแชท 12 พ.ย. 2026
+  ["ขอบเขียว", `/products/acrylic-green-${p.extra}.jpg`], ["ขอบน้ำเงิน", `/products/acrylic-blue-${p.extra}.jpg`],
 ];
 const REAL_PHOTOS: Record<string, Record<string, string | [string, string][]>> = {
   // การ์ดประเภทสินค้า: ภาพปก "กรอบป้าย…" ที่ร้านทำ — Drive โฟลเดอร์ 16G9HWg0H7gjxG2L44Zx2t5VewyBCz_hZ (30 ต.ค. 2026)
@@ -193,29 +198,31 @@ const REAL_PHOTOS: Record<string, Record<string, string | [string, string][]>> =
     "สีเทา มีเส้นขอบ": "1n0xoAFjp5HDd8t_bJ59ZDZieHgcBFCyT",
     "สีเทา ไร้เส้นขอบ": "14RPn5ODPEMbqh0Mbqaqz-V6yuYWH-pFn",
     "ลายเคฟล่า ดำ มีเส้นขอบ": "15UyD2nLQugAuI4-F8Ezdkz3YpnrfbwRe",
+    "สีขาว ขอบเขียว": "/products/acrylic-green-step1-colour.jpg",
+    "สีขาว ขอบน้ำเงิน": "/products/acrylic-blue-step1-colour.jpg",
   },
   "อะคริลิค ขั้น 2 เลือกขนาด": {
     "สั้น-สั้น": acrylic({
       black: "1FlW6iibbam4RdKeJG0TUB3afz2ghnLnq", blackNo: "1mWrtE62y7tdMG8WErkXH7uwCGxZcHpVl", white: "127L_zbSGsLxSyn9cqXK5G6mA6y78blV7", whiteNo: "1x_OO49-VXTB_R9b4MfhKWVZujInAV53W",
-      grey: "1LRc1yj2Q_bgUm1qsqwf9FWuSBU8V_SpL", greyNo: "1enKtjEX68h-Qb1lzo08RSf2hE2EJKO9k", kevlar: "1EvnP_5z-CX7w7BdNBm3F3Xpl4c3NFzVY",
+      grey: "1LRc1yj2Q_bgUm1qsqwf9FWuSBU8V_SpL", greyNo: "1enKtjEX68h-Qb1lzo08RSf2hE2EJKO9k", kevlar: "1EvnP_5z-CX7w7BdNBm3F3Xpl4c3NFzVY", extra: "step2-ss",
     }),
     "สั้น-ยาว": acrylic({
       black: "1kDIlMmdNoPmZnYLlzMXirxntVlZDSYU-", blackNo: "1gFuPHekCbWgO_QByIgMgXp0Ely3FWL01", white: "1EiF--8BRR_41iaAYS9XuJXyFRVMDTXz2", whiteNo: "1CJ6dXRluUnO9NirTEFbcwAOAErO5AfQF",
-      grey: "1BtRbn3P39BJrXeGwoxK2bICNODa-umJR", greyNo: "1ynSs_Ou_VIJG9B7IPCaGgst5tsHPvzQP", kevlar: "17jNY6cKQtBJBgaCV610H9-oxVBvsqPLx",
+      grey: "1BtRbn3P39BJrXeGwoxK2bICNODa-umJR", greyNo: "1ynSs_Ou_VIJG9B7IPCaGgst5tsHPvzQP", kevlar: "17jNY6cKQtBJBgaCV610H9-oxVBvsqPLx", extra: "step1-colour",
     }),
     "ยาว-ยาว": acrylic({
       black: "1zACDwk5KM6adU38sC-ox4aHiKDPxhfGQ", blackNo: "1tl6gvmJEqlV0Bai-bJSfpMJS8h4sqdBY", white: "1hy27d_Z0-yPcosQqNQ-3VMCXSXkPpN5r", whiteNo: "1Sd-YYoJxTtYzSU25-8V8p7Uxp7l-fECv",
-      grey: "1xa-8_-G_VeOUoa35pkOgfXbWhz4-FFfU", greyNo: "1CfWNC6D4Ut5nYSIUakJXXgsPFjDm8jOI", kevlar: "10tdDU2byg_VYzM3Wc1C-A6u_UF24ReAt",
+      grey: "1xa-8_-G_VeOUoa35pkOgfXbWhz4-FFfU", greyNo: "1CfWNC6D4Ut5nYSIUakJXXgsPFjDm8jOI", kevlar: "10tdDU2byg_VYzM3Wc1C-A6u_UF24ReAt", extra: "step2-ll",
     }),
   },
   "อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง": {
     "มีเส้นคาดกลาง": acrylic({
       black: "1tKfPrhPhwUBbo60kaIImSsCzMUoid1EP", blackNo: "1_4nnP3o97N6mVoZrklUZuu9Q24uL5AaA", white: "1WO5Js6IoyOqgasdzlgkrk86eienEobWg", whiteNo: "1ORK9I7P2cVTKm92lh_kjPFt0mh6Cv0sP",
-      grey: "1_00_lctue9apYqp-r2b0XhFteL6Rcssq", greyNo: "19Uxy0BPvp1sP9xqDFKAWdjGx6py-nJlW", kevlar: "1gP84LSaYFk1j5MzDAHe2WteWU_FvtE0B",
+      grey: "1_00_lctue9apYqp-r2b0XhFteL6Rcssq", greyNo: "19Uxy0BPvp1sP9xqDFKAWdjGx6py-nJlW", kevlar: "1gP84LSaYFk1j5MzDAHe2WteWU_FvtE0B", extra: "step3-center-yes",
     }),
     "ไม่มีเส้นคาดกลาง": acrylic({
       black: "14lsmzpjO2vJR21NLZly11zArLaqwcU6s", blackNo: "13Rg89Gks42-HJbUwm2yzaXugMmehis_c", white: "123bQxpKGcnG_lisZ_LRRWcGb2X-E36RC", whiteNo: "1CqCAdaXC5GpIqWyKqtrT49joR0_EjDVu",
-      grey: "1CAUUx62YVu0mXKORhoFWZoXXPAXOm1ky", greyNo: "1eK8f5P7tlmHG-T7TRsaez8j_EjvJzkTe", kevlar: "1MUgrrN9Y2ZZToufBJmYEVgN-HjhB6Ols",
+      grey: "1CAUUx62YVu0mXKORhoFWZoXXPAXOm1ky", greyNo: "1eK8f5P7tlmHG-T7TRsaez8j_EjvJzkTe", kevlar: "1MUgrrN9Y2ZZToufBJmYEVgN-HjhB6Ols", extra: "step1-colour",
     }),
   },
   "สแตนเลส ขั้น 1 เลือกทรง": {
