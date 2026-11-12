@@ -90,7 +90,7 @@ export function sampleSets(): ImageSet[] {
   const img = (f: string) => `${baseUrl()}/samples/${f}`;
   const items = (rows: [name: string, price: string, image: string, detail: string, normal?: string][]): ImageItem[] =>
     rows.map(([name, price, image, detail, normal], i) => ({ order: i + 1, name, price, image: image && img(image), detail, ...(normal ? { normal } : {}) }));
-  const acrylicPrice = "สั้น-สั้น 399.- / สั้น-ยาว, ยาว-ยาว 419.-";
+  const acrylicPrice = "399.- / 419.-"; // บรรทัดเดียว (จักรเลือกการ์ดแบบ A 12 พ.ย. 2026) · ราคาแยกขนาดอยู่ในขั้นเลือกขนาด
   // ทรงคางหมูไม่มีแบบแผ่นอะคริลิคใส (จักรยืนยัน 29 ต.ค. 2026) → ราคาเดียว + ข้ามขั้นแผ่นใส
   const shapes = (detail: string, rectPrice: string, trapPrice: string) => items([
     ["สี่เหลี่ยมขอบใหญ่", rectPrice, "shape-rect-wide.png", `35.5 × 15.5 ซม. · ${detail}`],
@@ -458,7 +458,7 @@ function titleLine(item: ImageItem) {
     margin: "md",
     contents: [
       { type: "span", text: `แบบที่ ${item.order}  `, size: "xs", color: t.label, weight: "bold" },
-      { type: "span", text: item.name, size: "xl", color: t.title, weight: "bold" },
+      { type: "span", text: item.name, size: "lg", color: t.title, weight: "bold" },
     ],
   };
 }
@@ -471,7 +471,7 @@ function priceLine(price: string) {
     type: "text",
     wrap: true,
     contents: [
-      { type: "span", text: main, size: "xxl", color: t.accent, weight: "bold" },
+      { type: "span", text: main, size: "xl", color: t.accent, weight: "bold" },
       ...(note ? [{ type: "span", text: ` ${note}`, size: "sm", color: t.accent }] : []),
     ],
   };
@@ -490,18 +490,25 @@ function normalLine(normal: string) {
   };
 }
 
+// การ์ดแบบ A (จักรเลือก 12 พ.ย. 2026): รูปแนวนอน 4:3 ให้การ์ดเตี้ยลง
+// ใช้เฉพาะชุดที่รูปพื้นขาว ตัดบน-ล่างแล้วกรอบไม่โดน (อะคริลิค) + คลิป YouTube (ภาพปก 4:3 อยู่แล้ว)
+// รูปที่ร้านออกแบบมีตัวหนังสือชิดขอบบน-ล่าง (ปกหมวด สแตนเลส เหล็ก ABS รถตู้ ป้ายภาษี รีวิว) → คงจัตุรัส
+export function heroRatio(setName: string): "4:3" | "1:1" {
+  return setName.startsWith("อะคริลิค ขั้น") || setName === INSTALL_SET ? "4:3" : "1:1";
+}
+
 export function buildCarousel(set: ImageSet, picked: string[] = []): FlexOut {
   const t = CARD_THEME;
   const bubbles = set.items.map((item) => ({
     type: "bubble",
     size: "kilo",
     styles: { hero: { backgroundColor: t.bgBottom }, body: { backgroundColor: t.bgTop }, footer: { backgroundColor: t.bgBottom } },
-    ...(item.image ? { hero: { type: "image", url: lineImageUrl(imageFor(item, picked)), size: "full", aspectRatio: "1:1", aspectMode: "cover" } } : {}), // รูปจริงส่วนใหญ่สี่เหลี่ยมจัตุรัส → ไม่ตัดหัวป้าย
+    ...(item.image ? { hero: { type: "image", url: lineImageUrl(imageFor(item, picked)), size: "full", aspectRatio: heroRatio(set.name), aspectMode: "cover" } } : {}),
     body: {
       type: "box",
       layout: "vertical",
       spacing: "sm",
-      paddingTop: "lg",
+      paddingTop: "md",
       background: { type: "linearGradient", angle: "0deg", startColor: t.bgBottom, endColor: t.bgTop },
       contents: [
         { type: "box", layout: "vertical", contents: [], width: "36px", height: "3px", backgroundColor: t.accent, cornerRadius: "2px" },

@@ -283,15 +283,23 @@ test("การ์ดประเภทสินค้า: แถว 1 แบบ
   const bubble = (buildCarousel(setNamed(CATEGORY_SET)).contents as any).contents[0];
   const [, title, normal, price, ...rest] = bubble.body.contents;
   const spans = (n: any) => n.contents.map((s: any) => [s.text, s.size, s.decoration ?? ""]);
-  assert.deepEqual(spans(title), [["แบบที่ 1  ", "xs", ""], ["อะคริลิค", "xl", ""]]);
+  assert.deepEqual(spans(title), [["แบบที่ 1  ", "xs", ""], ["อะคริลิค", "lg", ""]]);
   assert.deepEqual(spans(normal), [["ราคาปกติ ", "sm", ""], ["550.-", "sm", "line-through"]]);
-  assert.deepEqual(spans(price), [["399.- / 419.-", "xxl", ""]]);
+  assert.deepEqual(spans(price), [["399.- / 419.-", "xl", ""]]);
   assert.equal(rest.length, 0);
   // หมายเหตุในวงเล็บท้ายราคา → ตัวเล็ก
   const steel = (buildCarousel(setNamed(CATEGORY_SET)).contents as any).contents[2].body.contents[3];
-  assert.deepEqual(spans(steel), [["249.- / 299.-", "xxl", ""], [" (มีแผ่นใส)", "sm", ""]]);
+  assert.deepEqual(spans(steel), [["249.- / 299.-", "xl", ""], [" (มีแผ่นใส)", "sm", ""]]);
   const parsed = parseImageSets("ชุดรูป,ชื่อแบบ,ราคา,ลิงก์รูป,ราคาปกติ\nx,ABS,199.-,,350.-");
   assert.equal(parsed[0].items[0].normal, "350.-");
+});
+
+test("การ์ดแบบ A: อะคริลิค + วิธีติดตั้ง รูปแนวนอน 4:3 · รูปที่ร้านออกแบบ (ปกหมวด สแตนเลส ป้ายภาษี รีวิว) คงจัตุรัส · ราคาขั้นเลือกสีบรรทัดเดียว", () => {
+  const ratio = (name: string) => (buildCarousel(setNamed(name)).contents as any).contents[0].hero.aspectRatio;
+  for (const n of ["อะคริลิค ขั้น 1 เลือกสี", "อะคริลิค ขั้น 2 เลือกขนาด", "อะคริลิค ขั้น 3 เลือกเส้นคาดกลาง"]) assert.equal(ratio(n), "4:3", n);
+  for (const n of [CATEGORY_SET, "สแตนเลส ขั้น 1 เลือกทรง", "เหล็กพ่นสี ขั้น 1 เลือกสี", "พลาสติก ABS ขั้น 1 เลือกสี", "กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ"]) assert.equal(ratio(n), "1:1", n);
+  assert.equal((buildCarousel(installSet()).contents as any).contents[0].hero.aspectRatio, "4:3");
+  assert.ok(setNamed("อะคริลิค ขั้น 1 เลือกสี").items.every((i) => i.price === "399.- / 419.-"));
 });
 
 test("รูปสินค้า: พื้นโปร่งใส → ขาว · รูปแนวนอนจัดลงจัตุรัสพื้นขาว ไม่ตัดขอบ", async () => {
