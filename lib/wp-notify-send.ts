@@ -3,7 +3,7 @@ import { prepareNotice, MAX_BODY_BYTES } from './wp-order-notify.ts';
 
 // Separate opt-in route. Existing dry-run endpoint and chatbot remain unchanged.
 export async function sendTrialNotice(raw: string, timestamp: string, signature: string,
- config: { secret: string; recipient: string; token: string; enabled: boolean },
+ config: { secret: string; recipient: string; token: string; enabled: boolean; allowLive?: boolean },
  fetcher: typeof fetch = fetch, now = Date.now()) {
  const fail = (status: number, error: string) => ({ status, body: { error, sent: false } });
  if (!config.enabled) return fail(503, 'sending_disabled');
@@ -18,11 +18,15 @@ export async function sendTrialNotice(raw: string, timestamp: string, signature:
  // Persisted by WordPress BEFORE first attempt; never refreshed for retries.
  // Stop after 20h, safely within LINE's 24h retry-key lifetime, even after an ambiguous timeout.
  if (p.firstAttemptAt > now / 1000 + 60 || now / 1000 - p.firstAttemptAt > 20 * 3600) return fail(410, 'retry_window_expired');
- const noticeRaw = JSON.stringify(p.notice);
+ const live = p.notice.trial === false;
+ if(live && !config.allowLive)return fail(403,'live_notifications_disabled');
+ const noticeRaw = JSON.stringify(live ? {...p.notice,trial:true} : p.notice);
  const noticeSig = createHmac('sha256', config.secret).update(`${timestamp}.${noticeRaw}`).digest('hex');
  const validated = prepareNotice(noticeRaw, timestamp, noticeSig, config.secret, now);
  if (validated.status !== 200) return validated;
- const { eventId, text, adminUrl } = validated.body;
+ const { eventId } = validated.body;
+ const text = live ? validated.body.text!.replace('[ทดสอบ — ไม่รับเงินจริง] ', '').replace('มีออเดอร์ทดลองใหม่','มีออเดอร์ใหม่').replace('ลูกค้าแนบสลิปทดสอบแล้ว','ลูกค้าแนบสลิปแล้ว').replace('TEST-','XERR-') : validated.body.text;
+ const adminUrl = live ? 'https://xerrautoteam.com/wp-admin/tools.php?page=xerr-live-orders' : validated.body.adminUrl;
  // Stable per event AND recipient, including the first request. Never include the signing timestamp.
  const hex = createHash('sha256').update(`${config.recipient}:${eventId}`).digest('hex');
  const retryKey = `${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;
@@ -34,6 +38,6 @@ export async function sendTrialNotice(raw: string, timestamp: string, signature:
   });
   const accepted = r.status === 200 || (r.status === 409 && !!r.headers.get('x-line-accepted-request-id'));
   if (!accepted) return fail(r.status >= 500 ? 502 : 422, `line_rejected_${r.status}`);
-  return { status: 200, body: { mode: 'trial_send', accepted: true, eventId, recipientSuffix: config.recipient.slice(-6), duplicate: r.status === 409 } };
+  return { status: 200, body: { mode: live ? 'live_send' : 'trial_send', accepted: true, eventId, recipientSuffix: config.recipient.slice(-6), duplicate: r.status === 409 } };
  } catch { return fail(502, 'delivery_unknown_retry_same_event'); }
 }

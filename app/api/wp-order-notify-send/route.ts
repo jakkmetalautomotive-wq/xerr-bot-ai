@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   }
   const result = await sendTrialNotice(Buffer.concat(chunks).toString('utf8'), req.headers.get('x-xerr-timestamp')??'', req.headers.get('x-xerr-signature')??'', {
    secret: process.env.WP_NOTIFY_SHARED_SECRET??'', recipient: process.env.WP_NOTIFY_RECIPIENT_ID??'',
-   token: process.env.LINE_CHANNEL_ACCESS_TOKEN??'', enabled: process.env.WP_NOTIFY_SEND_MODE === 'trial_only',
+   token: process.env.LINE_CHANNEL_ACCESS_TOKEN??'', enabled: ['trial_only','trial_and_live'].includes(process.env.WP_NOTIFY_SEND_MODE??''), allowLive: process.env.WP_NOTIFY_SEND_MODE==='trial_and_live',
   });
   return Response.json(result.body,{status:result.status,headers});
  } catch { return Response.json({error:'invalid_request'},{status:400,headers}); }
