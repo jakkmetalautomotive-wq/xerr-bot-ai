@@ -14,6 +14,7 @@ import {
 } from "./order.ts";
 import { slipImageMessage } from "./slip.ts";
 import { defaultState, type StateStore } from "./state.ts";
+import { getLabel, labelReadyText, labelUrl } from "./label.ts";
 import { logOrder, statusEvent, ORDER_STATUS, setTracking, getTracking, parseTrackingLines, type OrderLogEvent, type TrackingInfo } from "./orderlog.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
@@ -267,7 +268,12 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
     if (pb.a === "ok") {
       await deps.line.push(pb.u, [paidConfirmMessage(pb.c, pb.t)]);
       const logged = await log(statusEvent(pb.c, ORDER_STATUS.paid));
-      await deps.line.reply(replyToken, [`✅ ยืนยันออเดอร์ ${pb.c} แล้ว · แจ้งลูกค้าแล้ว${logged ? " · ลงชีทแล้ว" : ""}`]);
+      // ใบปะหน้า: ที่อยู่ที่ลูกค้ากรอกไว้ → ลิงก์หน้าพิมพ์ ส่งต่อให้พนักงานได้เลย
+      const label = await getLabel(deps.state ?? defaultState, pb.c).catch(() => null);
+      const labelMsg = label && deps.orderSecret
+        ? labelReadyText(pb.c, label.name, labelUrl(pb.c, deps.orderSecret))
+        : `🖨️ ไม่มีที่อยู่ของ ${pb.c} ในระบบใบปะหน้า (ลูกค้าไม่ได้กรอกแบบฟอร์ม) — ดูที่อยู่ในแชทแทนนะครับ`;
+      await deps.line.reply(replyToken, [`✅ ยืนยันออเดอร์ ${pb.c} แล้ว · แจ้งลูกค้าแล้ว${logged ? " · ลงชีทแล้ว" : ""}`, labelMsg]);
     } else {
       await deps.line.push(pb.u, [`ขออภัยครับ ยอดโอนของออเดอร์ ${pb.c} ยังไม่ตรง/ยังไม่พบยอด เดี๋ยวแอดมินติดต่อกลับในแชทนี้นะครับ 🙏`]);
       await log(statusEvent(pb.c, ORDER_STATUS.mismatch));

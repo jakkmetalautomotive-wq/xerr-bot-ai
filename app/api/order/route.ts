@@ -4,6 +4,8 @@ import { getImageSets } from "@/lib/images.ts";
 import { verifyOrder, priceOrder, validateAddress, adminOrderMessage, orderLines } from "@/lib/order.ts";
 import { line } from "@/lib/line.ts";
 import { logOrder, newOrderEvent } from "@/lib/orderlog.ts";
+import { labelFromOrder, saveLabel } from "@/lib/label.ts";
+import { defaultState } from "@/lib/state.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +46,9 @@ export async function POST(req: Request) {
 
   const order = priceOrder(await getImageSets(), draft);
   if (!order) return bad("ข้อมูลสินค้าเปลี่ยนไปแล้ว กรุณาเลือกสินค้าใหม่ในแชทครับ");
+
+  // เก็บที่อยู่ไว้ทำใบปะหน้า (ส่งให้แอดมินตอนกด ✅ ได้รับเงินแล้ว)
+  await saveLabel(defaultState, labelFromOrder(order, addr.value)).catch((err) => console.error("[order] เก็บข้อมูลใบปะหน้าไม่สำเร็จ:", err));
 
   const adminId = process.env.ADMIN_LINE_USER_ID;
   if (adminId) {
