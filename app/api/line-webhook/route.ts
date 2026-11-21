@@ -3,6 +3,7 @@ import { validateSignature, type webhook } from "@line/bot-sdk";
 import { waitUntil } from "@vercel/functions";
 import { handleEvent } from "@/lib/bot.ts";
 import { line, paymentInfo } from "@/lib/line.ts";
+import { metaPort, routedPort } from "@/lib/meta.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
   }
 
   const deps = {
-    line,
+    line: routedPort(line, metaPort()), // แอดมินกดยืนยันสลิปของลูกค้า FB/IG → ส่งหาลูกค้าทาง Meta
     adminUserId: process.env.ADMIN_LINE_USER_ID,
     liffId: process.env.LIFF_ID || process.env.NEXT_PUBLIC_LIFF_ID,
     paymentInfo: paymentInfo(),

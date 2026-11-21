@@ -311,7 +311,7 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
     } else {
       await deps.line.push(pb.u, [`ขออภัยครับ ยอดโอนของออเดอร์ ${pb.c} ยังไม่ตรง/ยังไม่พบยอด เดี๋ยวแอดมินติดต่อกลับในแชทนี้นะครับ 🙏`]);
       await log(statusEvent(pb.c, ORDER_STATUS.mismatch));
-      await deps.line.reply(replyToken, [`แจ้งลูกค้าแล้วว่ายอดออเดอร์ ${pb.c} ยังไม่ตรง · คุยต่อใน LINE OA Manager ได้เลย`]);
+      await deps.line.reply(replyToken, [`แจ้งลูกค้าแล้วว่ายอดออเดอร์ ${pb.c} ยังไม่ตรง · คุยต่อใน ${replyPlace(pb.u)} ได้เลย`]);
     }
   }
 }
@@ -423,6 +423,10 @@ async function send(deps: BotDeps, replyToken: string, userId: string, messages:
   }
 }
 
+// ลูกค้ามาจากช่องทางไหน (รหัส fb:/ig: มาจาก app/api/meta-webhook) → บอกแอดมินว่าไปตอบที่ไหน
+const channelName = (userId: string) => (userId.startsWith("fb:") ? "Facebook" : userId.startsWith("ig:") ? "Instagram" : "");
+const replyPlace = (userId: string) => (channelName(userId) ? `Meta Business Suite › กล่องข้อความ (${channelName(userId)})` : "LINE OA Manager › แชท");
+
 async function notifyAdmin(deps: BotDeps, userId: string, note: string, extra: OutMessage[] = []) {
   if (!deps.adminUserId) {
     console.warn("[admin] ยังไม่ได้ตั้ง ADMIN_LINE_USER_ID — แจ้งแอดมินไม่ได้:", note);
@@ -430,6 +434,7 @@ async function notifyAdmin(deps: BotDeps, userId: string, note: string, extra: O
   }
   if (userId === deps.adminUserId) return; // แอดมินทดสอบเอง ไม่ต้องแจ้งตัวเอง
   const name = await deps.line.displayName(userId).catch(() => "");
-  const text = `🔔 ลูกค้าต้องการแอดมิน\nชื่อ: ${name || "-"}\nเรื่อง: ${note}\n\nตอบได้ใน LINE OA Manager › แชท`;
+  const where = channelName(userId);
+  const text = `🔔 ลูกค้าต้องการแอดมิน${where ? ` (${where})` : ""}\nชื่อ: ${name || "-"}\nเรื่อง: ${note}\n\nตอบได้ใน ${replyPlace(userId)}`;
   await deps.line.push(deps.adminUserId, [text, ...extra]).catch((err) => console.error("[admin] แจ้งไม่สำเร็จ:", (err as Error).message));
 }
