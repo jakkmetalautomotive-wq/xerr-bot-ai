@@ -15,6 +15,7 @@ import {
 import { slipImageMessage } from "./slip.ts";
 import { defaultState, type StateStore } from "./state.ts";
 import { getLabel, labelReadyText, labelUrl } from "./label.ts";
+import { parseReviewQuery, pickReviews, reviewMessages, toReviewPhotos, loadReviewFiles, type ReviewPhoto } from "./reviews.ts";
 import { logOrder, statusEvent, ORDER_STATUS, setTracking, getTracking, parseTrackingLines, type OrderLogEvent, type TrackingInfo } from "./orderlog.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
@@ -47,6 +48,8 @@ export interface BotDeps {
   getTracking?: (code: string) => Promise<TrackingInfo | null>;
   // ความจำถาวร (ช่วงพัก/โปรรีวิว) · ไม่ใส่ = Upstash ถ้าตั้งไว้ ไม่งั้นหน่วยความจำชั่วคราว
   state?: StateStore;
+  // รูปรีวิวลูกค้า (ใส่ในเทสต์) · ไม่ใส่ = อ่านจาก Drive ผ่าน Apps Script
+  getReviewPhotos?: () => Promise<ReviewPhoto[]>;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
@@ -171,6 +174,20 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     await state.set(muteKey(userId), "1", MUTE_SECONDS);
     await notifyAdmin(deps, userId, "ลูกค้ากดปุ่ม \"คุยกับแอดมิน\"");
     return;
+  }
+
+  // ลูกค้าขอดูรีวิว / รูปติดจริง ตามรุ่นรถ หรือแบบกรอบ → การ์ดรูปรีวิวจาก Drive (ไม่ต้องรอ AI · ช่วงพักก็ยังตอบ)
+  if (!choice) {
+    const rq = parseReviewQuery(question);
+    if (rq) {
+      const photos = await (deps.getReviewPhotos ?? (async () => toReviewPhotos(await loadReviewFiles(state))))().catch(() => []);
+      if (photos.length) {
+        const pick = pickReviews(photos, rq);
+        await send(deps, replyToken, userId, reviewMessages(pick));
+        addTurn(userId, question, `[ส่งรูปรีวิว ${pick.shown || pick.wanted || "ลูกค้าจริง"} ${pick.photos.length} รูปแล้ว]`);
+        return;
+      }
+    }
   }
 
   // กดการ์ดประเภทสินค้า → ส่งขั้นแรกของสินค้านั้น (ไม่ต้องรอ AI) · ไม่มีตัวเลือก → สั่งได้เลย

@@ -37,13 +37,13 @@ export function newOrderEvent(o: PricedOrder, a: Address, lineName: string, line
 export const statusEvent = (code: string, status: string): OrderLogEvent => ({ action: "status", code, status });
 
 type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
-type SheetOpts = { url?: string; secret?: string; fetchFn?: FetchFn };
+type SheetOpts = { url?: string; secret?: string; fetchFn?: FetchFn; timeoutMs?: number };
 
 // ส่งคำสั่งไป Apps Script → ผลตอบกลับ (null = ยังไม่ตั้งค่า / ล่ม / รหัสผิด — log ไว้แล้ว)
-async function callOrderSheet<T extends { ok?: boolean; error?: string }>(
+export async function callOrderSheet<T extends { ok?: boolean; error?: string }>(
   payload: Record<string, unknown>,
   what: string,
-  { url = process.env.ORDER_LOG_URL ?? "", secret = process.env.ORDER_LOG_SECRET ?? "", fetchFn = fetch as FetchFn }: SheetOpts = {},
+  { url = process.env.ORDER_LOG_URL ?? "", secret = process.env.ORDER_LOG_SECRET ?? "", fetchFn = fetch as FetchFn, timeoutMs = 15_000 }: SheetOpts = {},
 ): Promise<T | null> {
   if (!url || !secret) {
     console.warn(`[orderlog] ยังไม่ได้ตั้ง ORDER_LOG_URL / ORDER_LOG_SECRET — ข้าม: ${what}`);
@@ -55,7 +55,7 @@ async function callOrderSheet<T extends { ok?: boolean; error?: string }>(
       headers: { "Content-Type": "text/plain;charset=utf-8" }, // Apps Script อ่านจาก e.postData.contents เป็นข้อความ JSON
       body: JSON.stringify({ ...payload, secret }),
       redirect: "follow",
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const data = (await res.json().catch(() => null)) as T | null;
     if (!res.ok || !data?.ok) {

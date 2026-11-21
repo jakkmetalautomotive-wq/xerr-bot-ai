@@ -23,6 +23,8 @@ function doPost(e) {
   try { data = JSON.parse(e.postData.contents); } catch (err) { return reply({ ok: false, error: 'bad json' }); }
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET');
   if (!secret || data.secret !== secret) return reply({ ok: false, error: 'secret' });
+  // รายชื่อรูปรีวิวในโฟลเดอร์ Drive (บอทจำไว้ 30 นาที) — ไม่ต้องล็อกชีท
+  if (data.action === 'list_reviews') return reply(listReviews_(data.folder));
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
@@ -152,6 +154,33 @@ function toDate_(v) {
   if (v instanceof Date) return v;
   const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?/);
   return m ? new Date(m[1] + '-' + m[2] + '-' + m[3] + 'T' + ('0' + (m[4] || '0')).slice(-2) + ':' + (m[5] || '00') + ':00+07:00') : null;
+}
+
+// อ่านโฟลเดอร์รีวิว: <รุ่นรถ>/<สินค้า - ลาย>/<รูป> → [{ id, name, path: [รุ่นรถ, สินค้า] }]
+// ครั้งแรกต้องกดอนุญาตให้สคริปต์อ่าน Google Drive (เรียกใช้ฟังก์ชัน authorizeDrive ในหน้าแก้ไข 1 ครั้ง)
+function listReviews_(folderId) {
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(String(folderId || ''))) return { ok: false, error: 'bad folder' };
+  const files = [];
+  const walk = function (folder, path, depth) {
+    const it = folder.getFiles();
+    while (it.hasNext()) {
+      const f = it.next();
+      if (String(f.getMimeType()).indexOf('image/') === 0) files.push({ id: f.getId(), name: f.getName(), path: path });
+    }
+    if (depth >= 3) return;
+    const subs = folder.getFolders();
+    while (subs.hasNext()) {
+      const sub = subs.next();
+      walk(sub, path.concat([sub.getName()]), depth + 1);
+    }
+  };
+  walk(DriveApp.getFolderById(folderId), [], 0);
+  return { ok: true, files: files };
+}
+
+// กดเรียกใช้ฟังก์ชันนี้ในหน้าแก้ไข 1 ครั้ง → Google ถามสิทธิ์อ่าน Drive → อนุญาต
+function authorizeDrive() {
+  Logger.log(DriveApp.getRootFolder().getName());
 }
 
 function findRow_(sh, code) {
