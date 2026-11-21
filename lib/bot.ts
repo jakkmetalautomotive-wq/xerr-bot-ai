@@ -263,7 +263,7 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
   // กด "🛒 สั่งลายนี้" ใต้รูปรีวิว → การ์ดสั่งซื้อของลายนั้นใบเดียว กดเลือกต่อได้เลย
   if (pb.k === "rv") {
     const sets = await (deps.getImageSets ?? getImageSets)().catch(() => []);
-    const card = reviewOrderCard(sets, pb.f, pb.c);
+    const card = reviewOrderCard(sets, pb.f, pb.c, pb.b === 1);
     if (!card) {
       await send(deps, replyToken, userId, [DEFAULT_REPLY, adminNotice()]);
       return;

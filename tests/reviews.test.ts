@@ -2,7 +2,9 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { _resetLocalState } from "../lib/state.ts";
 import { memoryStore } from "../lib/state.ts";
-import { parseReviewQuery, pickReviews, toReviewPhotos, reviewMessages, loadReviewFiles, _resetReviewMemo, type DriveFile } from "../lib/reviews.ts";
+import { parseReviewQuery, pickReviews, toReviewPhotos, reviewMessages, loadReviewFiles, _resetReviewMemo, reviewOrderCard, type DriveFile } from "../lib/reviews.ts";
+import type { ImageSet } from "../lib/images.ts";
+import { encodePostback } from "../lib/order.ts";
 import { REVIEW_TAGS } from "../lib/review-tags.ts";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 beforeEach(() => {
@@ -80,7 +82,9 @@ test("เลือกรูป: ตรงทุกข้อ · ไม่มี�
   assert.match(String(msgs[0]), /🔒 ทางร้านใช้ระบบ AI เปลี่ยนเลขทะเบียนในรูปแล้ว เพื่อความปลอดภัยและความเป็นส่วนตัวของลูกค้าทุกท่านครับ$/);
   const card = (msgs[1] as any).contents.contents[0];
   assert.match(card.hero.url, /\/api\/img\?id=/);
-  assert.equal(card.footer.contents[0].action.text, "🛒 สั่งซื้อ");
+  const btn = card.footer.contents[0].action;
+  assert.equal(btn.type, "postback");
+  assert.equal(btn.label, "🛒 สั่งลายนี้");
 });
 
 test("รายชื่อรูปจาก Drive จำไว้ 30 นาที · Apps Script ล่ม → ใช้รายชื่อเก่า", async () => {
@@ -110,4 +114,41 @@ test("ไฟล์ข้อมูลรูป: รูปที่ติดป้
     if (t.size) assert.match(t.size, /^[SL]$/, name);
     if (t.bar) assert.match(t.bar, /^[YN]$/, name);
   }
+});
+
+// ชื่อการ์ดจริงในชีท (21 พ.ย. 2026)
+const card = (name: string, items: string[]): ImageSet => ({ name, items: items.map((n, i) => ({ order: i + 1, name: n, price: "199.-", image: "", detail: "" })) });
+const liveSets: ImageSet[] = [
+  card("เลือกประเภทสินค้า", ["อะคริลิค", "สแตนเลส", "เหล็กพ่นสี", "พลาสติก ABS", "ไร้ขอบ", "รถตู้/บรรทุก", "กรอบป้ายภาษี พรบ."]),
+  card("อะคริลิค ขั้น 1 เลือกสี", ["สีดำ มีเส้นขอบ", "สีดำ ไร้เส้นขอบ", "สีขาว มีเส้นขอบ", "สีขาว ไร้เส้นขอบ", "สีเทา มีเส้นขอบ", "สีเทา ไร้เส้นขอบ", "ลายเคฟล่า ดำ มีเส้นขอบ", "สีขาว เส้นขอบเขียว", "สีขาว เส้นขอบน้ำเงิน"]),
+  card("สแตนเลส ขั้น 1 เลือกทรง", ["สี่เหลี่ยมขอบใหญ่", "สี่เหลี่ยมขอบเล็ก", "คางหมู"]),
+  card("เหล็กพ่นสี ขั้น 1 เลือกสี", ["สีขาว", "สีดำ"]),
+  card("กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ", ["รถยนต์", "มอเตอร์ไซค์"]),
+];
+
+test("กด \"สั่งลายนี้\" ใต้รูปรีวิว → การ์ดลายนั้นใบเดียว · หาไม่เจอ → ทั้งขั้นแรกของสินค้า", () => {
+  const one = (f: string, c?: string, b = false) => reviewOrderCard(liveSets, f, c, b)!;
+  assert.deepEqual(one("plain", "black").set.items.map((i) => i.name), ["สีดำ มีเส้นขอบ"]);
+  assert.deepEqual(one("plain", "black", true).set.items.map((i) => i.name), ["สีดำ ไร้เส้นขอบ"]);
+  assert.deepEqual(one("plain", "white").set.items.map((i) => i.name), ["สีขาว มีเส้นขอบ"]);
+  assert.deepEqual(one("plain", "gray").set.items.map((i) => i.name), ["สีเทา มีเส้นขอบ"]);
+  assert.deepEqual(one("carbon", "black").set.items.map((i) => i.name), ["ลายเคฟล่า ดำ มีเส้นขอบ"]);
+  assert.deepEqual(one("steel", "black").set.items.map((i) => i.name), ["สีดำ"]);
+  assert.equal(one("plain", "black").set.name, "อะคริลิค ขั้น 1 เลือกสี", "ชื่อชุดเดิม → ปุ่มบนการ์ดยังเลือกต่อได้");
+  assert.equal(one("plain", "red").exact, false); // ไม่มีสีแดงในชีท → ทุกแบบของอะคริลิค
+  assert.equal(one("plain", "red").set.items.length, 9);
+  assert.equal(one("sincity", "black").exact, false);
+  assert.equal(one("stainless").set.items.length, 3);
+  assert.deepEqual(one("undercut").set.items.map((i) => i.name), ["ไร้ขอบ"]);
+  assert.equal(one("tax").set.name, "กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ");
+});
+
+test("ลูกค้ากดปุ่มใต้รูปรีวิว (postback) → บอทส่งการ์ดสั่งซื้อลายนั้น", async () => {
+  const sent: any[] = [];
+  const line: LinePort = { reply: async (_t, m) => void sent.push(m), push: async () => {}, showLoading: async () => {}, displayName: async () => "" };
+  await handleEvent({ type: "postback", source: { type: "user", userId: "U1" }, replyToken: "rt", postback: { data: encodePostback({ k: "rv", f: "plain", c: "black" }) } } as any, { line, adminUserId: "UADMIN", getImageSets: async () => liveSets });
+  assert.match(sent[0][0], /ลายนี้เลยครับ/);
+  const bubbles = sent[0][1].contents.contents;
+  assert.equal(bubbles.length, 1);
+  assert.match(JSON.stringify(bubbles[0]), /สีดำ มีเส้นขอบ/);
 });

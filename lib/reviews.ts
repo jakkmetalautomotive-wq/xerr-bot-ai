@@ -26,6 +26,7 @@ export type ReviewPhoto = {
   label: string; // ชื่อลายภาษาไทยบนการ์ด
   size?: "S" | "L";
   bar?: "Y" | "N";
+  borderless?: boolean; // ลายเรียบ "ไร้เส้นขอบ"
 };
 
 // ---------- แปลงรายชื่อไฟล์จาก Drive → รูปรีวิว ----------
@@ -85,7 +86,8 @@ export function toReviewPhotos(files: DriveFile[], tags: Record<string, Tag> = T
     const variant = product.split(/\s+-\s+/).slice(1).join(" ") || product;
     const family = familyOf(product);
     const colors = COLOR_WORDS.filter(([re]) => re.test(variant)).map(([, c]) => c);
-    out.push({ id: f.id, file: f.name, model, brand, family, colors, label: labelOf(family, colors, tag), size: tag?.size, bar: tag?.bar });
+    const borderless = /ไร้เส้นขอบ|borderless|no border/i.test(`${tag?.title ?? ""} ${tag?.sub ?? ""} ${product}`);
+    out.push({ id: f.id, file: f.name, model, brand, family, colors, label: labelOf(family, colors, tag), size: tag?.size, bar: tag?.bar, ...(borderless ? { borderless } : {}) });
   }
   return out;
 }
@@ -305,7 +307,7 @@ function chip(text: string) {
 function orderAction(p: ReviewPhoto) {
   if (!PRODUCT_OF[p.family]) return { type: "message", label: "🛒 สั่งซื้อ", text: MENU.order };
   const label = `🛒 สั่ง${p.family === "tax" ? "กรอบป้ายภาษี" : p.label.replace(/^กรอบ/, "")}`.slice(0, 40);
-  return { type: "postback", label: "🛒 สั่งลายนี้", data: encodePostback({ k: "rv", f: p.family, ...(p.colors[0] ? { c: p.colors[0] } : {}) }), displayText: label };
+  return { type: "postback", label: "🛒 สั่งลายนี้", data: encodePostback({ k: "rv", f: p.family, ...(p.colors[0] ? { c: p.colors[0] } : {}), ...(p.borderless ? { b: 1 } : {}) }), displayText: label };
 }
 
 function bubble(p: ReviewPhoto) {
@@ -365,20 +367,27 @@ const FAMILY_WORDS: Record<string, RegExp> = {
 const COLOR_RE: Record<string, RegExp> = { black: /ดำ/, white: /ขาว/, gray: /เทา/, red: /แดง/, blue: /น้ำเงิน|ฟ้า/, pink: /ชมพู/, gold: /ทอง/ };
 const ANY_PATTERN = new RegExp(Object.values(FAMILY_WORDS).map((r) => r.source).join("|"), "i");
 
-function matchItem(items: ImageItem[], family: string, color?: string): ImageItem | undefined {
+function matchItem(items: ImageItem[], family: string, color?: string, borderless = false): ImageItem | undefined {
   const text = (i: ImageItem) => `${i.name} ${i.detail ?? ""}`;
-  let pool = family in FAMILY_WORDS ? items.filter((i) => FAMILY_WORDS[family].test(text(i))) : items.filter((i) => !ANY_PATTERN.test(i.name));
-  if (color && pool.length > 1) {
-    const byColor = pool.filter((i) => COLOR_RE[color]?.test(i.name));
-    if (byColor.length) pool = byColor;
-  } else if (color && family === "plain") {
-    pool = pool.filter((i) => COLOR_RE[color]?.test(i.name));
+  const byColor = (pool: ImageItem[]) => (color ? pool.filter((i) => COLOR_RE[color]?.test(i.name)) : []);
+  // ลายพิเศษ (เคฟล่า / Sin City ...) → การ์ดที่มีชื่อลายนั้น · หลายใบค่อยเลือกตามสี
+  if (family in FAMILY_WORDS) {
+    const pool = items.filter((i) => FAMILY_WORDS[family].test(text(i)));
+    const colored = pool.length > 1 ? byColor(pool) : [];
+    return (colored.length ? colored : pool)[0];
   }
-  return pool.length === 1 || (pool.length && family !== "plain") ? pool[0] : undefined;
+  // ลายเรียบ: ต้องตรงสี · มีทั้ง "มีเส้นขอบ" / "ไร้เส้นขอบ" / "เส้นขอบเขียว" → รูปรีวิวส่วนใหญ่เป็นแบบมีเส้นขอบ
+  let pool = byColor(family === "plain" ? items.filter((i) => !ANY_PATTERN.test(i.name)) : items);
+  if (family === "plain" && pool.length > 1) {
+    const border = pool.filter((i) => (borderless ? /ไร้เส้นขอบ/ : /มีเส้นขอบ/).test(i.name));
+    if (border.length) pool = border;
+  }
+  // สินค้าอื่น (เหล็ก / ABS) เลือกตามสีเท่านั้น · สแตนเลส / ป้ายภาษี ไม่มีสี → ส่งทุกแบบให้เลือก
+  return pool.length === 1 ? pool[0] : undefined;
 }
 
 // คืนชุดการ์ดที่ส่งให้ลูกค้ากดต่อ: ตรงลาย → การ์ดใบเดียว · หาไม่เจอ → ทั้งขั้นแรกของสินค้านั้น · ไม่รู้สินค้า → การ์ดเลือกประเภท
-export function reviewOrderCard(sets: ImageSet[], family: string, color?: string): { set: ImageSet; exact: boolean } | null {
+export function reviewOrderCard(sets: ImageSet[], family: string, color?: string, borderless = false): { set: ImageSet; exact: boolean } | null {
   const product = PRODUCT_OF[family];
   const category = sets.find((s) => s.name === CATEGORY_SET);
   if (!product) return category ? { set: category, exact: false } : null;
@@ -389,6 +398,6 @@ export function reviewOrderCard(sets: ImageSet[], family: string, color?: string
     if (category && item) return { set: { ...category, items: [item] }, exact: true };
     return category ? { set: category, exact: false } : null;
   }
-  const item = matchItem(step1.items, family, color);
+  const item = matchItem(step1.items, family, color, borderless);
   return item ? { set: { ...step1, items: [item] }, exact: true } : { set: step1, exact: false };
 }

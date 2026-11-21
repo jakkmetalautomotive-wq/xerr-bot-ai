@@ -118,7 +118,7 @@ export type Postback =
   | { k: "tax"; y: 0 | 1; p: string; s: string[] }
   | { k: "adm"; a: "ok" | "bad"; c: string; u: string; t: number }
   | { k: "trk"; c: string }
-  | { k: "rv"; f: string; c?: string }; // กด "สั่งลายนี้" ใต้รูปรีวิว: f = ลาย, c = สี
+  | { k: "rv"; f: string; c?: string; b?: 1 }; // กด "สั่งลายนี้" ใต้รูปรีวิว: f = ลาย, c = สี, b = ไร้เส้นขอบ
 
 export function encodePostback(p: Postback): string {
   const s = JSON.stringify(p);
