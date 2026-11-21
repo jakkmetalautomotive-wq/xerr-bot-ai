@@ -6,7 +6,8 @@ import { getFaq, sheetUrls } from "@/lib/sheet.ts";
 import { MODEL, FALLBACK_MODEL, THINKING, askGemini } from "@/lib/gemini.ts";
 import { bangkokClock } from "@/lib/shop.ts";
 import { getImageSets } from "@/lib/images.ts";
-import { stateHealth } from "@/lib/state.ts";
+import { stateHealth, defaultState } from "@/lib/state.ts";
+import { loadReviewFiles, toReviewPhotos } from "@/lib/reviews.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +34,12 @@ export async function GET(req: Request) {
   out.state = await stateHealth();
 
   const params = new URL(req.url).searchParams;
+  // ?reviews=1 → จำนวนรูปรีวิวที่บอทอ่านจาก Drive ได้ (ไม่แสดงรายชื่อไฟล์)
+  if (params.get("reviews") === "1") {
+    const files = await loadReviewFiles(defaultState).catch(() => []);
+    const photos = toReviewPhotos(files);
+    out.reviews = { driveFiles: files.length, sendable: photos.length, models: new Set(photos.map((p) => p.model).filter(Boolean)).size };
+  }
   // เช็ค Gemini กินโควตาคีย์ → ต้องตั้ง HEALTH_KEY ใน Vercel แล้วแนบ ?key=... ให้ตรง (ไม่ตั้ง = ปิดไว้)
   const healthKey = process.env.HEALTH_KEY ?? "";
   const keyOk = healthKey.length >= 8 && params.get("key") === healthKey;
