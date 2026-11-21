@@ -117,7 +117,8 @@ export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: b
 export type Postback =
   | { k: "tax"; y: 0 | 1; p: string; s: string[] }
   | { k: "adm"; a: "ok" | "bad"; c: string; u: string; t: number }
-  | { k: "trk"; c: string };
+  | { k: "trk"; c: string }
+  | { k: "rv"; f: string; c?: string }; // กด "สั่งลายนี้" ใต้รูปรีวิว: f = ลาย, c = สี
 
 export function encodePostback(p: Postback): string {
   const s = JSON.stringify(p);
@@ -131,6 +132,7 @@ export function decodePostback(data: string): Postback | null {
     if (p?.k === "tax" && Array.isArray(p.s) && typeof p.p === "string") return p;
     if (p?.k === "adm" && (p.a === "ok" || p.a === "bad") && typeof p.c === "string" && typeof p.u === "string") return p;
     if (p?.k === "trk" && typeof p.c === "string") return p;
+    if (p?.k === "rv" && typeof p.f === "string" && (p.c === undefined || typeof p.c === "string")) return p;
   } catch {}
   return null;
 }

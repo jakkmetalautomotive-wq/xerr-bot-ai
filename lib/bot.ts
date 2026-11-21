@@ -15,7 +15,7 @@ import {
 import { slipImageMessage } from "./slip.ts";
 import { defaultState, type StateStore } from "./state.ts";
 import { getLabel, labelReadyText, labelUrl } from "./label.ts";
-import { parseReviewQuery, pickReviews, reviewMessages, toReviewPhotos, loadReviewFiles, type ReviewPhoto } from "./reviews.ts";
+import { parseReviewQuery, pickReviews, reviewMessages, toReviewPhotos, loadReviewFiles, reviewOrderCard, type ReviewPhoto } from "./reviews.ts";
 import { logOrder, statusEvent, ORDER_STATUS, setTracking, getTracking, parseTrackingLines, type OrderLogEvent, type TrackingInfo } from "./orderlog.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
@@ -260,6 +260,20 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
   }
 
   // ลูกค้ากด "📦 ขอเลขพัสดุ" → ค้นในชีทออเดอร์ (ตอบด้วย reply ไม่กินโควตา push) · ต้องเป็นเจ้าของออเดอร์
+  // กด "🛒 สั่งลายนี้" ใต้รูปรีวิว → การ์ดสั่งซื้อของลายนั้นใบเดียว กดเลือกต่อได้เลย
+  if (pb.k === "rv") {
+    const sets = await (deps.getImageSets ?? getImageSets)().catch(() => []);
+    const card = reviewOrderCard(sets, pb.f, pb.c);
+    if (!card) {
+      await send(deps, replyToken, userId, [DEFAULT_REPLY, adminNotice()]);
+      return;
+    }
+    const intro = card.exact ? "ลายนี้เลยครับ 😊 กดเลือกที่การ์ดเพื่อสั่งต่อได้เลย" : "เลือกแบบที่ต้องการได้เลยครับ 😊";
+    await send(deps, replyToken, userId, [intro, buildCarousel(card.set)]);
+    addTurn(userId, "กดสั่งจากรูปรีวิว", `[ส่งการ์ด "${card.set.name}" ${card.set.items.map((i) => i.name).join(", ")} ให้ลูกค้าแล้ว]`);
+    return;
+  }
+
   if (pb.k === "trk") {
     const info = await (deps.getTracking ?? getTracking)(pb.c);
     const mine = info?.found && (!info.lineUserId || info.lineUserId === userId);

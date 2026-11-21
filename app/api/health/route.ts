@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   }
 
   // ชุดการ์ดรูป (จากแท็บ "รูปสินค้า" หรือชุดตัวอย่าง)
-  out.imageSets = (await getImageSets()).map((s) => ({ name: s.name, cards: s.items.length, sample: s.items[0]?.image.includes("/samples/") }));
+  out.imageSets = (await getImageSets()).map((s) => ({ name: s.name, cards: s.items.length, sample: s.items[0]?.image.includes("/samples/"), items: s.items.map((i) => i.name) }));
 
   // ความจำถาวร (Upstash Redis) — ช่วงพัก 10 นาที / โปรรีวิว 30 วัน
   out.state = await stateHealth();

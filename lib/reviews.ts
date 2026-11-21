@@ -4,8 +4,9 @@
 // lib/review-tags.json = ข้อมูลที่ดูจากรูปไว้แล้ว (ตัวสั้น/ยาว · มี/ไม่มีเส้นคาดกลาง · รูปที่ไม่ควรส่ง · รูปที่อยู่ผิดโฟลเดอร์รุ่น)
 // รูปใหม่ที่ยังไม่มีในไฟล์นี้ → ใช้รุ่นรถ + ลายจากชื่อโฟลเดอร์ (ยังไม่รู้ขนาด/เส้นคาดกลาง)
 import { REVIEW_TAGS } from "./review-tags.ts";
-import { baseUrl, CARD_THEME } from "./images.ts";
+import { baseUrl, CARD_THEME, CATEGORY_SET, firstStepSet, type ImageSet, type ImageItem } from "./images.ts";
 import { MENU } from "./shop.ts";
+import { encodePostback } from "./order.ts";
 import { callOrderSheet } from "./orderlog.ts";
 import type { StateStore } from "./state.ts";
 
@@ -300,6 +301,13 @@ function chip(text: string) {
   return { type: "box", layout: "vertical", backgroundColor: "#2A2A2A", cornerRadius: "md", paddingAll: "4px", paddingStart: "8px", paddingEnd: "8px", flex: 0, contents: [{ type: "text", text, size: "xxs", color: CARD_THEME.title }] };
 }
 
+// ปุ่มใต้รูป: กดแล้วได้การ์ดสั่งซื้อของลายนี้เลย (ไม่ต้องไล่เลือกประเภทสินค้าใหม่)
+function orderAction(p: ReviewPhoto) {
+  if (!PRODUCT_OF[p.family]) return { type: "message", label: "🛒 สั่งซื้อ", text: MENU.order };
+  const label = `🛒 สั่ง${p.family === "tax" ? "กรอบป้ายภาษี" : p.label.replace(/^กรอบ/, "")}`.slice(0, 40);
+  return { type: "postback", label: "🛒 สั่งลายนี้", data: encodePostback({ k: "rv", f: p.family, ...(p.colors[0] ? { c: p.colors[0] } : {}) }), displayText: label };
+}
+
 function bubble(p: ReviewPhoto) {
   const t = CARD_THEME;
   const chips = [p.size === "S" ? "ตัวสั้น 40 ซม." : p.size === "L" ? "ตัวยาว 50 ซม." : null, p.bar === "Y" ? "มีเส้นคาดกลาง" : p.bar === "N" ? "ไม่มีเส้นคาดกลาง" : null].filter(Boolean) as string[];
@@ -322,7 +330,7 @@ function bubble(p: ReviewPhoto) {
       type: "box",
       layout: "vertical",
       backgroundColor: t.bgBottom,
-      contents: [{ type: "button", style: "primary", color: t.accent, height: "sm", action: { type: "message", label: "🛒 สั่งซื้อ", text: MENU.order } }],
+      contents: [{ type: "button", style: "primary", color: t.accent, height: "sm", action: orderAction(p) }],
     },
   };
 }
@@ -342,4 +350,45 @@ export function reviewMessages(pick: ReviewPick) {
     `${intro}\n\n${PRIVACY_NOTE}`,
     { type: "flex" as const, altText: `รูปรีวิว ${pick.shown || pick.wanted || "ลูกค้าจริง"}`, contents: { type: "carousel", contents: pick.photos.map(bubble) } },
   ];
+}
+
+// ---------- รูปรีวิว → การ์ดสั่งซื้อ ----------
+// ลาย → สินค้าในชีท (ชื่อชุด "<สินค้า> ขั้น 1 ...")
+const PRODUCT_OF: Record<string, string> = {
+  plain: "อะคริลิค", carbon: "อะคริลิค", sincity: "อะคริลิค", keepcalm: "อะคริลิค", vip: "อะคริลิค", guitar: "อะคริลิค", goldborder: "อะคริลิค", speedfoxx: "อะคริลิค",
+  steel: "เหล็กพ่นสี", stainless: "สแตนเลส", abs: "พลาสติก ABS", tax: "กรอบป้ายภาษี พรบ.", undercut: "ไร้ขอบ",
+};
+const FAMILY_WORDS: Record<string, RegExp> = {
+  carbon: /เคฟล่า|เคฟลา|คาร์บอน|carbon/i, sincity: /sin\s*city|ซินซิตี้/i, keepcalm: /keep\s*calm|คีพคาม/i, vip: /vip|วีไอพี/i,
+  guitar: /กีต้าร์|กีตาร์|guitar/i, goldborder: /ทอง/, speedfoxx: /speed|foxx/i,
+};
+const COLOR_RE: Record<string, RegExp> = { black: /ดำ/, white: /ขาว/, gray: /เทา/, red: /แดง/, blue: /น้ำเงิน|ฟ้า/, pink: /ชมพู/, gold: /ทอง/ };
+const ANY_PATTERN = new RegExp(Object.values(FAMILY_WORDS).map((r) => r.source).join("|"), "i");
+
+function matchItem(items: ImageItem[], family: string, color?: string): ImageItem | undefined {
+  const text = (i: ImageItem) => `${i.name} ${i.detail ?? ""}`;
+  let pool = family in FAMILY_WORDS ? items.filter((i) => FAMILY_WORDS[family].test(text(i))) : items.filter((i) => !ANY_PATTERN.test(i.name));
+  if (color && pool.length > 1) {
+    const byColor = pool.filter((i) => COLOR_RE[color]?.test(i.name));
+    if (byColor.length) pool = byColor;
+  } else if (color && family === "plain") {
+    pool = pool.filter((i) => COLOR_RE[color]?.test(i.name));
+  }
+  return pool.length === 1 || (pool.length && family !== "plain") ? pool[0] : undefined;
+}
+
+// คืนชุดการ์ดที่ส่งให้ลูกค้ากดต่อ: ตรงลาย → การ์ดใบเดียว · หาไม่เจอ → ทั้งขั้นแรกของสินค้านั้น · ไม่รู้สินค้า → การ์ดเลือกประเภท
+export function reviewOrderCard(sets: ImageSet[], family: string, color?: string): { set: ImageSet; exact: boolean } | null {
+  const product = PRODUCT_OF[family];
+  const category = sets.find((s) => s.name === CATEGORY_SET);
+  if (!product) return category ? { set: category, exact: false } : null;
+  const step1 = firstStepSet(sets, product);
+  if (!step1) {
+    // สินค้าที่ไม่มีขั้นตอน (เช่น ไร้ขอบ) → การ์ดใบนั้นจากชุดเลือกประเภท
+    const item = category?.items.find((i) => i.name.includes(product));
+    if (category && item) return { set: { ...category, items: [item] }, exact: true };
+    return category ? { set: category, exact: false } : null;
+  }
+  const item = matchItem(step1.items, family, color);
+  return item ? { set: { ...step1, items: [item] }, exact: true } : { set: step1, exact: false };
 }
