@@ -15,7 +15,7 @@ import {
 import { slipImageMessage } from "./slip.ts";
 import { defaultState, type StateStore } from "./state.ts";
 import { getLabel, labelReadyText, labelUrl } from "./label.ts";
-import { parseReviewQuery, pickReviews, reviewMessages, toReviewPhotos, loadReviewFiles, reviewOrderCard, type ReviewPhoto } from "./reviews.ts";
+import { parseReviewQuery, pickReviews, reviewMessages, toReviewPhotos, loadReviewFiles, reviewOrderCard, soldPhotos, isSold, askedDesign, type ReviewPhoto } from "./reviews.ts";
 import { logOrder, statusEvent, ORDER_STATUS, setTracking, getTracking, parseTrackingLines, type OrderLogEvent, type TrackingInfo } from "./orderlog.ts";
 
 // ข้อความที่ส่งออก: ข้อความธรรมดา / การ์ด (Flex) / ข้อความที่มีปุ่มด่วน
@@ -180,10 +180,13 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   if (!choice) {
     const rq = parseReviewQuery(question);
     if (rq) {
-      const photos = await (deps.getReviewPhotos ?? (async () => toReviewPhotos(await loadReviewFiles(state))))().catch(() => []);
+      const all = await (deps.getReviewPhotos ?? (async () => toReviewPhotos(await loadReviewFiles(state))))().catch(() => []);
+      const photos = soldPhotos(sets, all); // ไม่ส่งรูปลายที่ร้านไม่ได้ขาย
       if (photos.length) {
-        const pick = pickReviews(photos, rq);
-        await send(deps, replyToken, userId, reviewMessages(pick));
+        // ถามลายที่ไม่มีขาย → บอกตรง ๆ แล้วส่งรีวิวแบบที่มีขาย (ยังกรองรุ่นรถ / ขนาด / เส้นคาดกลางตามที่ถาม)
+        const notSold = rq.family && !isSold(sets, rq.family, rq.color) ? askedDesign(rq) : "";
+        const pick = pickReviews(photos, notSold ? { ...rq, family: undefined, color: undefined } : rq);
+        await send(deps, replyToken, userId, reviewMessages(pick, { notSold }));
         addTurn(userId, question, `[ส่งรูปรีวิว ${pick.shown || pick.wanted || "ลูกค้าจริง"} ${pick.photos.length} รูปแล้ว]`);
         return;
       }

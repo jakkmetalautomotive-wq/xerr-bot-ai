@@ -340,12 +340,14 @@ function bubble(p: ReviewPhoto) {
 // ข้อความของจักร (21 พ.ย. 2026) — ต่อท้ายทุกครั้งที่ส่งรูปรีวิว
 export const PRIVACY_NOTE = "🔒 ทางร้านใช้ระบบ AI เปลี่ยนเลขทะเบียนในรูปแล้ว เพื่อความปลอดภัยและความเป็นส่วนตัวของลูกค้าทุกท่านครับ";
 
-export function reviewMessages(pick: ReviewPick) {
+export function reviewMessages(pick: ReviewPick, opts: { notSold?: string } = {}) {
   const totalForQuery = pick.total;
   const n = pick.photos.length;
   const more = totalForQuery > n ? ` (จากทั้งหมด ${totalForQuery} รูป)` : "";
   let intro: string; // + PRIVACY_NOTE ต่อท้ายทุกครั้ง
-  if (!pick.wanted) intro = `📸 รีวิวจากลูกค้าจริงครับ ${n} รูป${more}\nพิมพ์รุ่นรถมาได้เลย เช่น "รีวิว Fortuner" หรือ "ขอดูเรียบดำตัวสั้น" 😊`;
+  if (opts.notSold) intro = `${opts.notSold} ทางร้านไม่มีจำหน่ายครับ 🙏
+ดูรีวิวแบบที่มีขายได้เลยครับ (${n} รูป)`;
+  else if (!pick.wanted) intro = `📸 รีวิวจากลูกค้าจริงครับ ${n} รูป${more}\nพิมพ์รุ่นรถมาได้เลย เช่น "รีวิว Fortuner" หรือ "ขอดูเรียบดำตัวสั้น" 😊`;
   else if (!pick.relaxed.length) intro = `📸 รีวิวจากลูกค้าจริง ${pick.wanted} — ${n} รูป${more} 😊`;
   else intro = `ยังไม่มีรูปรีวิว ${pick.wanted} ครับ 🙏\nส่งรูป${pick.shown ? ` ${pick.shown}` : "รีวิวอื่น"} ให้ดูก่อนนะครับ (${n} รูป)`;
   return [
@@ -400,4 +402,21 @@ export function reviewOrderCard(sets: ImageSet[], family: string, color?: string
   }
   const item = matchItem(step1.items, family, color, borderless);
   return item ? { set: { ...step1, items: [item] }, exact: true } : { set: step1, exact: false };
+}
+
+// ร้านขายแบบนี้ไหม = มีการ์ดสั่งซื้อในชีท (ลายที่ไม่มีการ์ด เช่น Sin City / VIP / Keep Calm / สีแดง → ไม่ขาย ไม่ส่งรูป)
+// เพิ่มการ์ดในชีทเมื่อไหร่ รูปลายนั้นกลับมาส่งได้เอง · อ่านชีทไม่ได้ → ไม่กรอง
+export function isSold(sets: ImageSet[], family: string, color?: string, borderless = false): boolean {
+  if (!sets.some((s) => s.name === CATEGORY_SET)) return true;
+  if (family === "stainless" || family === "tax") return Boolean(firstStepSet(sets, PRODUCT_OF[family]));
+  return Boolean(reviewOrderCard(sets, family, color, borderless)?.exact);
+}
+
+export const soldPhotos = (sets: ImageSet[], photos: ReviewPhoto[]) => photos.filter((p) => isSold(sets, p.family, p.colors[0], p.borderless));
+
+// ชื่อแบบที่ลูกค้าถาม (ไว้บอกว่าไม่มีขาย)
+export function askedDesign(q: ReviewQuery): string {
+  if (!q.family) return "";
+  if (q.family === "plain") return `ลายเรียบ${q.color ? COLOR_TH[q.color] ?? "" : ""}`;
+  return `${FAMILY_TH[q.family] ?? "ลายนี้"}${q.color && q.family === "carbon" ? COLOR_TH[q.color] ?? "" : ""}`;
 }

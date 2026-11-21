@@ -2,7 +2,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { _resetLocalState } from "../lib/state.ts";
 import { memoryStore } from "../lib/state.ts";
-import { parseReviewQuery, pickReviews, toReviewPhotos, reviewMessages, loadReviewFiles, _resetReviewMemo, reviewOrderCard, type DriveFile } from "../lib/reviews.ts";
+import { parseReviewQuery, pickReviews, toReviewPhotos, reviewMessages, loadReviewFiles, _resetReviewMemo, reviewOrderCard, soldPhotos, isSold, type DriveFile } from "../lib/reviews.ts";
 import type { ImageSet } from "../lib/images.ts";
 import { encodePostback } from "../lib/order.ts";
 import { REVIEW_TAGS } from "../lib/review-tags.ts";
@@ -151,4 +151,24 @@ test("ลูกค้ากดปุ่มใต้รูปรีวิว (pos
   const bubbles = sent[0][1].contents.contents;
   assert.equal(bubbles.length, 1);
   assert.match(JSON.stringify(bubbles[0]), /สีดำ มีเส้นขอบ/);
+});
+
+test("ลายที่ร้านไม่ได้ขาย (ไม่มีการ์ดในชีท) → ไม่ส่งรูป · ถามหาลายนั้น → บอกว่าไม่มีจำหน่าย", async () => {
+  assert.equal(isSold(liveSets, "plain", "black"), true);
+  assert.equal(isSold(liveSets, "carbon", "black"), true);
+  assert.equal(isSold(liveSets, "sincity", "black"), false);
+  assert.equal(isSold(liveSets, "vip", "black"), false);
+  assert.equal(isSold(liveSets, "plain", "red"), false);
+  assert.equal(isSold(liveSets, "stainless"), true);
+  assert.equal(isSold(liveSets, "tax"), true);
+  assert.equal(isSold([], "sincity"), true, "อ่านชีทไม่ได้ → ไม่กรอง");
+  assert.deepEqual(soldPhotos(liveSets, photos).map((p) => p.id), ["fort1", "altis1", "ativ1", "city1", "unk1", "tax1"]);
+
+  const sent: any[] = [];
+  const line: LinePort = { reply: async (_t, m) => void sent.push(m), push: async () => {}, showLoading: async () => {}, displayName: async () => "" };
+  await handleEvent({ type: "message", source: { type: "user", userId: "U1" }, replyToken: "rt", message: { type: "text", text: "ขอดูลาย sin city หน่อย" } } as any, {
+    line, adminUserId: "UADMIN", getImageSets: async () => liveSets, getReviewPhotos: async () => photos, ask: async () => { throw new Error("ไม่ควรเรียก AI"); },
+  });
+  assert.match(sent[0][0], /^ลาย Sin City ทางร้านไม่มีจำหน่ายครับ/);
+  assert.ok(!JSON.stringify(sent[0][1]).includes("fort2"), "ไม่ส่งรูป Sin City");
 });

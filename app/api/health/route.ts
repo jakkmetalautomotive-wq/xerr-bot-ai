@@ -7,7 +7,7 @@ import { MODEL, FALLBACK_MODEL, THINKING, askGemini } from "@/lib/gemini.ts";
 import { bangkokClock } from "@/lib/shop.ts";
 import { getImageSets } from "@/lib/images.ts";
 import { stateHealth, defaultState } from "@/lib/state.ts";
-import { loadReviewFiles, toReviewPhotos } from "@/lib/reviews.ts";
+import { loadReviewFiles, toReviewPhotos, soldPhotos } from "@/lib/reviews.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +38,8 @@ export async function GET(req: Request) {
   if (params.get("reviews") === "1") {
     const files = await loadReviewFiles(defaultState).catch(() => []);
     const photos = toReviewPhotos(files);
-    out.reviews = { driveFiles: files.length, sendable: photos.length, models: new Set(photos.map((p) => p.model).filter(Boolean)).size };
+    const sold = soldPhotos(await getImageSets(), photos); // เฉพาะลายที่มีการ์ดสั่งซื้อ
+    out.reviews = { driveFiles: files.length, sendable: photos.length, soldDesigns: sold.length, models: new Set(sold.map((p) => p.model).filter(Boolean)).size };
   }
   // เช็ค Gemini กินโควตาคีย์ → ต้องตั้ง HEALTH_KEY ใน Vercel แล้วแนบ ?key=... ให้ตรง (ไม่ตั้ง = ปิดไว้)
   const healthKey = process.env.HEALTH_KEY ?? "";
