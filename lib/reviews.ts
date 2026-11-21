@@ -94,7 +94,8 @@ const CACHE_KEY = "reviews:v1";
 const FRESH_MS = 30 * 60_000;
 let memo: { at: number; files: DriveFile[] } | null = null;
 
-export async function loadReviewFiles(state: StateStore, fetchList = fetchDriveList, now = Date.now()): Promise<DriveFile[]> {
+// มีรายชื่อเก่า → รอ Drive แค่ 8 วิ ไม่ทันก็ใช้ของเก่า (Apps Script อ่านเสร็จแล้วจำไว้ให้ครั้งหน้าเร็ว) · ไม่มีเลย → รอได้ 25 วิ
+export async function loadReviewFiles(state: StateStore, fetchList: (timeoutMs: number) => Promise<DriveFile[] | null> = fetchDriveList, now = Date.now()): Promise<DriveFile[]> {
   if (!memo) {
     const raw = await state.get(CACHE_KEY).catch(() => null);
     if (raw) {
@@ -106,7 +107,7 @@ export async function loadReviewFiles(state: StateStore, fetchList = fetchDriveL
     }
   }
   if (memo && now - memo.at < FRESH_MS) return memo.files;
-  const files = await fetchList().catch(() => null);
+  const files = await fetchList(memo ? 8_000 : 25_000).catch(() => null);
   if (files?.length) {
     memo = { at: now, files };
     await state.set(CACHE_KEY, JSON.stringify(memo), 7 * 24 * 60 * 60).catch(() => {});
@@ -118,8 +119,8 @@ export const _resetReviewMemo = () => {
   memo = null;
 };
 
-async function fetchDriveList(): Promise<DriveFile[] | null> {
-  const data = await callOrderSheet<{ ok: boolean; files?: DriveFile[] }>({ action: "list_reviews", folder: REVIEW_FOLDER_ID }, "อ่านรายชื่อรูปรีวิว", { timeoutMs: 45_000 });
+async function fetchDriveList(timeoutMs: number): Promise<DriveFile[] | null> {
+  const data = await callOrderSheet<{ ok: boolean; files?: DriveFile[] }>({ action: "list_reviews", folder: REVIEW_FOLDER_ID }, "อ่านรายชื่อรูปรีวิว", { timeoutMs });
   return data?.files ?? null;
 }
 

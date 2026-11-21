@@ -24,7 +24,7 @@ function doPost(e) {
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET');
   if (!secret || data.secret !== secret) return reply({ ok: false, error: 'secret' });
   // รายชื่อรูปรีวิวในโฟลเดอร์ Drive (บอทจำไว้ 30 นาที) — ไม่ต้องล็อกชีท
-  if (data.action === 'list_reviews') return reply(listReviews_(data.folder));
+  if (data.action === 'list_reviews') return reply(cachedReviews_(data.folder, data.refresh));
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
@@ -154,6 +154,32 @@ function toDate_(v) {
   if (v instanceof Date) return v;
   const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?/);
   return m ? new Date(m[1] + '-' + m[2] + '-' + m[3] + 'T' + ('0' + (m[4] || '0')).slice(-2) + ':' + (m[5] || '00') + ':00+07:00') : null;
+}
+
+// อ่านโฟลเดอร์ Drive ช้า (~30-60 วิ) → จำผลไว้ 1 ชม. (แบ่งเก็บเป็นก้อน เพราะเก็บได้ก้อนละไม่เกิน 100KB)
+// หมดเวลาแล้วครั้งถัดไปจะอ่านใหม่ — บอทใช้รายชื่อเก่าไปก่อนระหว่างรอ ลูกค้าไม่ต้องรอ
+function cachedReviews_(folderId, refresh) {
+  const cache = CacheService.getScriptCache();
+  const key = 'reviews_' + folderId;
+  if (!refresh) {
+    const n = Number(cache.get(key + '_n') || 0);
+    if (n > 0) {
+      const parts = cache.getAll(Array.from({ length: n }, function (_, i) { return key + '_' + i; }));
+      let json = '';
+      for (let i = 0; i < n; i++) json += parts[key + '_' + i] || '';
+      try { return { ok: true, cached: true, files: JSON.parse(json) }; } catch (err) { /* ก้อนหาย → อ่านใหม่ */ }
+    }
+  }
+  const result = listReviews_(folderId);
+  if (result.ok) {
+    const json = JSON.stringify(result.files);
+    const size = 90000, chunks = {};
+    let n = 0;
+    for (let i = 0; i < json.length; i += size) chunks[key + '_' + n++] = json.slice(i, i + size);
+    chunks[key + '_n'] = String(n);
+    cache.putAll(chunks, 3600);
+  }
+  return result;
 }
 
 // อ่านโฟลเดอร์รีวิว: <รุ่นรถ>/<สินค้า - ลาย>/<รูป> → [{ id, name, path: [รุ่นรถ, สินค้า] }]
