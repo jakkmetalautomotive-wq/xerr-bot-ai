@@ -31,10 +31,13 @@ export type ReviewPhoto = {
 
 // ---------- แปลงรายชื่อไฟล์จาก Drive → รูปรีวิว ----------
 const UNKNOWN_MODEL = /model (unknown|unconfirmed)|multiple models/i;
+// ชื่อโฟลเดอร์สะกดยี่ห้อไม่เหมือนกัน (DEEPAL S07 / Deepal - ..., AION UT / GAC Aion - ...) → ใช้ชื่อเดียวกัน
+const BRAND_CANON: Record<string, string> = { deepal: "Deepal", aion: "GAC", gac: "GAC", neta: "NETA", riddara: "RIDDARA" };
 
 function splitModel(folder: string): { model: string | null; brand: string | null } {
   if (/^(vehicle|motorcycle)\b/i.test(folder)) return { model: null, brand: null };
-  const brand = folder.split(/\s+-\s+|\s+/)[0] ?? null;
+  const first = folder.split(/\s+-\s+|\s+/)[0] ?? "";
+  const brand = BRAND_CANON[first.toLowerCase()] ?? (first || null);
   return UNKNOWN_MODEL.test(folder) ? { model: null, brand } : { model: folder, brand };
 }
 
@@ -174,11 +177,40 @@ const MODEL_ALIASES: Record<string, string[]> = {
   "Jaecoo J5": ["jaecoo", "เจคู"],
   "Proton Exora": ["exora", "เอ็กซ์โซร่า"],
   "Tank 300": ["tank300", "แทงค์300", "แทงค์"],
+  "Toyota Innova": ["innova", "อินโนว่า", "อินโนวา"],
+  "Honda CR-V": ["crv", "ซีอาร์วี"],
+  "Honda City Hatchback": ["cityhatchback", "ซิตี้แฮทช์แบ็ก", "ซิตี้แฮทช์แบ็ค", "ซิตี้แฮชแบค", "ซิตี้5ประตู"],
+  "Honda Stepwgn": ["stepwgn", "stepwagon", "สเต็ปวากอน", "สเตปวากอน"],
+  "Honda Freed": ["freed", "ฟรีด"],
+  "Ford Fiesta": ["fiesta", "เฟียสต้า", "เฟียสตา"],
+  "Mitsubishi Lancer Evolution": ["lancer", "แลนเซอร์"],
+  "BYD Dolphin": ["dolphin", "ดอลฟิน", "ดอลฟิ้น"],
+  "BYD Sealion 6": ["sealion", "ซีไลออน"],
+  "Haval H6": ["havalh6", "ฮาวาลh6"],
+  "Haval Jolion": ["jolion", "โจไลออน"],
+  "DEEPAL S07": ["deepals07", "s07"],
+  "AION UT": ["aionut", "ไอออนut"],
+  "ORA Good Cat": ["goodcat", "กู๊ดแคท", "กู้ดแคท", "กูดแคท"],
+  "NETA V": ["netav", "เนต้าv"],
+  "RIDDARA RD6": ["rd6", "riddarard6"],
+  "MG 4": ["mg4", "เอ็มจี4"],
+  "MG HS": ["mghs", "เอ็มจีhs"],
+  "MG VS HEV": ["mgvs", "vshev", "เอ็มจีvs"],
+  "MG ZS": ["mgzs", "zsev", "เอ็มจีzs"],
+  "Maxus T60": ["maxust60", "t60"],
+  "Mercedes-Benz CLA": ["benzcla", "mercedescla", "cla200", "cla250"],
+  "Audi A3": ["audia3", "ออดี้a3"],
+  "BMW 3 Series": ["3series", "ซีรีส์3", "ซีรี่ส์3", "series3"],
+  "Volvo V60": ["v60"],
 };
 const BRAND_ALIASES: Record<string, string[]> = {
   Toyota: ["toyota", "โตโยต้า"], Honda: ["honda", "ฮอนด้า"], Isuzu: ["isuzu", "อีซูซุ", "อิซูซุ"], Mitsubishi: ["mitsubishi", "มิตซู", "มิตซูบิชิ"],
   Mazda: ["mazda", "มาสด้า"], Ford: ["ford", "ฟอร์ด"], Nissan: ["nissan", "นิสสัน"], Suzuki: ["suzuki", "ซูซูกิ"], Chevrolet: ["chevrolet", "เชฟ", "เชฟโรเลต"],
   BYD: ["byd", "บีวายดี"], MG: ["mg", "เอ็มจี"], BMW: ["bmw", "บีเอ็ม"], Volvo: ["volvo", "วอลโว่"], ORA: ["ora", "โอร่า"], Hino: ["hino", "ฮีโน่"],
+  Haval: ["haval", "ฮาวาล"], Deepal: ["deepal", "ดีพาล"], GAC: ["aion", "ไอออน", "gac"], Audi: ["audi", "ออดี้"],
+  "Mercedes-Benz": ["benz", "เบนซ์", "mercedes", "เมอร์เซเดส"], Mini: ["minicooper", "มินิคูเปอร์", "countryman"], Subaru: ["subaru", "ซูบารุ"],
+  Jaecoo: ["jaecoo", "เจคู"], Geely: ["geely", "จีลี่"], NETA: ["neta", "เนต้า"], Maxus: ["maxus", "แม็กซัส"], RIDDARA: ["riddara", "ริดดาร่า"],
+  Leapmotor: ["leapmotor", "ลีปมอเตอร์"],
 };
 
 const ALIAS_LIST = Object.entries(MODEL_ALIASES)
@@ -271,7 +303,7 @@ export function pickReviews(all: ReviewPhoto[], q: ReviewQuery, limit = 10): Rev
   }
   if (!found.length && cur.model) {
     relaxed.push(cur.model);
-    const brand = cur.model.split(" ")[0];
+    const brand = splitModel(cur.model).brand ?? undefined;
     cur = { ...q, model: undefined, brand };
     found = run(cur);
     for (const k of order) {

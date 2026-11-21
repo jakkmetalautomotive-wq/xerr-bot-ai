@@ -110,7 +110,7 @@ test("ลูกค้าพิมพ์ \"รีวิว Fortuner\" → ข้�
 
 test("ไฟล์ข้อมูลรูป: รูปที่ติดป้ายว่าไม่ส่งมีเหตุผล · ขนาด/เส้นคาดกลางเป็นค่าที่รู้จัก", () => {
   for (const [name, t] of Object.entries(REVIEW_TAGS)) {
-    if (t.skip) assert.match(t.skip, /^(bad|dup|person)$/, name);
+    if (t.skip) assert.match(t.skip, /^(bad|dup|person|privacy)$/, name);
     if (t.size) assert.match(t.size, /^[SL]$/, name);
     if (t.bar) assert.match(t.bar, /^[YN]$/, name);
   }
@@ -171,4 +171,17 @@ test("ลายที่ร้านไม่ได้ขาย (ไม่มี
   });
   assert.match(sent[0][0], /^ลาย Sin City ทางร้านไม่มีจำหน่ายครับ/);
   assert.ok(!JSON.stringify(sent[0][1]).includes("fort2"), "ไม่ส่งรูป Sin City");
+});
+
+test("รุ่นรถชุดใหม่: ถามชื่อรุ่น/ยี่ห้อได้ · ยี่ห้อสะกดต่างกันในโฟลเดอร์นับเป็นยี่ห้อเดียว", () => {
+  assert.equal(parseReviewQuery("ขอดูรีวิว ORA Good Cat หน่อย")?.model, "ORA Good Cat");
+  assert.equal(parseReviewQuery("อยากดูรูปติดรถ Dolphin")?.model, "BYD Dolphin");
+  assert.equal(parseReviewQuery("ขอดูรีวิว city hatchback")?.model, "Honda City Hatchback");
+  assert.equal(parseReviewQuery("ขอดูรีวิวรถเบนซ์")?.brand, "Mercedes-Benz");
+  assert.equal(parseReviewQuery("ขอดูรีวิวลายมินิมอล")?.brand, undefined);
+  const photos = toReviewPhotos([
+    { id: "a", name: "a.png", path: ["DEEPAL S07", "Acrylic License Plate Frame - White"] },
+    { id: "b", name: "b.png", path: ["Deepal - Model Unconfirmed", "Acrylic License Plate Frame - Black"] },
+  ], {});
+  assert.deepEqual(photos.map((p) => p.brand), ["Deepal", "Deepal"]);
 });
