@@ -77,6 +77,7 @@ test("เลือกรูป: ตรงทุกข้อ · ไม่มี�
 
   const msgs = reviewMessages(c);
   assert.match(String(msgs[0]), /ยังไม่มีรูปรีวิว Toyota Yaris Cross/);
+  assert.match(String(msgs[0]), /🔒 ทางร้านใช้ระบบ AI เปลี่ยนเลขทะเบียนในรูปแล้ว เพื่อความปลอดภัยและความเป็นส่วนตัวของลูกค้าทุกท่านครับ$/);
   const card = (msgs[1] as any).contents.contents[0];
   assert.match(card.hero.url, /\/api\/img\?id=/);
   assert.equal(card.footer.contents[0].action.text, "🛒 สั่งซื้อ");

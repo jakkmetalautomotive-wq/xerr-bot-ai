@@ -327,16 +327,19 @@ function bubble(p: ReviewPhoto) {
   };
 }
 
+// ข้อความของจักร (21 พ.ย. 2026) — ต่อท้ายทุกครั้งที่ส่งรูปรีวิว
+export const PRIVACY_NOTE = "🔒 ทางร้านใช้ระบบ AI เปลี่ยนเลขทะเบียนในรูปแล้ว เพื่อความปลอดภัยและความเป็นส่วนตัวของลูกค้าทุกท่านครับ";
+
 export function reviewMessages(pick: ReviewPick) {
   const totalForQuery = pick.total;
   const n = pick.photos.length;
   const more = totalForQuery > n ? ` (จากทั้งหมด ${totalForQuery} รูป)` : "";
-  let intro: string;
+  let intro: string; // + PRIVACY_NOTE ต่อท้ายทุกครั้ง
   if (!pick.wanted) intro = `📸 รีวิวจากลูกค้าจริงครับ ${n} รูป${more}\nพิมพ์รุ่นรถมาได้เลย เช่น "รีวิว Fortuner" หรือ "ขอดูเรียบดำตัวสั้น" 😊`;
   else if (!pick.relaxed.length) intro = `📸 รีวิวจากลูกค้าจริง ${pick.wanted} — ${n} รูป${more} 😊`;
   else intro = `ยังไม่มีรูปรีวิว ${pick.wanted} ครับ 🙏\nส่งรูป${pick.shown ? ` ${pick.shown}` : "รีวิวอื่น"} ให้ดูก่อนนะครับ (${n} รูป)`;
   return [
-    intro,
+    `${intro}\n\n${PRIVACY_NOTE}`,
     { type: "flex" as const, altText: `รูปรีวิว ${pick.shown || pick.wanted || "ลูกค้าจริง"}`, contents: { type: "carousel", contents: pick.photos.map(bubble) } },
   ];
 }
