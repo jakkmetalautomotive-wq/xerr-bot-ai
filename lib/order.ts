@@ -91,7 +91,8 @@ export function orderLines(o: PricedOrder): string {
 }
 
 // เทมเพลตสรุปออเดอร์ของจักร (ปรับคำเป็นผู้ชาย) · เลขบัญชีมาจาก PAYMENT_INFO ใน Vercel
-export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: boolean, { qr = false, copyAccount = false } = {}): string {
+// payInline = false → ไม่ใส่ข้อมูลโอนในสรุป (Messenger ส่งเป็นข้อความ "ช่องทางชำระเงิน" แยก ดู paymentMessage)
+export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: boolean, { qr = false, copyAccount = false, payInline = true } = {}): string {
   const howTo = [
     ...(qr ? ["📱 สแกน QR พร้อมเพย์ด้านล่างได้เลย (ใส่ยอดให้แล้ว)"] : []),
     ...(copyAccount ? ["📋 เลขบัญชีส่งแยกไว้ด้านล่าง กดปุ่มโอนในแชท หรือกดค้างเพื่อคัดลอกได้เลยครับ"] : []),
@@ -108,8 +109,7 @@ export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: b
     orderLines(o),
     "*ไม่มีเก็บปลายทาง*",
     "",
-    pay,
-    "",
+    ...(payInline ? [pay, ""] : []),
     address,
     "",
     "🚚 การจัดส่งสินค้า",
@@ -118,6 +118,15 @@ export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: b
     "",
     "ขอบคุณที่อุดหนุนครับ 🙏",
   ].join("\n");
+}
+
+// ข้อความช่องทางชำระเงินแยก (Messenger): PAYMENT_INFO บรรทัดเดียว → ขึ้นบรรทัดใหม่หน้า emoji แต่ละตัว
+// Messenger เห็นเลขบัญชีในข้อความ → ทำการ์ดธนาคารพร้อมปุ่มโอนให้เอง (เฉพาะธนาคารที่ Meta รองรับ)
+export function paymentMessage(paymentInfo: string): string | null {
+  const info = paymentInfo.trim();
+  if (!info) return null;
+  const lines = info.includes("\n") ? info : info.replace(/\s*(\p{Extended_Pictographic})/gu, "\n$1").trim();
+  return `💳 ช่องทางชำระเงิน\n${lines}`;
 }
 
 // ---------- ปุ่ม (postback) ----------

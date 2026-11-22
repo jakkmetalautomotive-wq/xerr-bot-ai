@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { _resetLocalState } from "../lib/state.ts";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets } from "../lib/images.ts";
-import { verifyOrder, decodePostback, signOrder } from "../lib/order.ts";
+import { verifyOrder, decodePostback, signOrder, paymentMessage } from "../lib/order.ts";
 import { crc16, promptPayPayload, accountNumbers } from "../lib/promptpay.ts";
 import { toMetaMessages } from "../lib/meta.ts";
 
@@ -25,7 +25,7 @@ const SECRET = "secret";
 const PAY = "ธนาคารกรุงไทย 123-4-56789-0\nธนาคารทหารไทยธนชาต (ttb) 987-6-54321-0\nชื่อบัญชี ร้านทดสอบ";
 const ev = (message: any, userId: string) => ({ type: "message", source: { type: "user", userId }, replyToken: userId, message }) as any;
 const pbEvent = (data: string, userId: string) => ({ type: "postback", source: { type: "user", userId }, replyToken: "rt-admin", postback: { data } }) as any;
-const deps = (line: LinePort) => ({ line, adminUserId: "UADMIN", orderSecret: SECRET, paymentInfo: PAY, liffId: "LIFF1", photoWaitMs: 10, getFaq: async () => "faq", getImageSets: async () => sampleSets(), readPhoto: async () => null });
+const deps = (line: LinePort) => ({ line, adminUserId: "UADMIN", orderSecret: SECRET, paymentInfo: PAY, liffId: "LIFF1", photoWaitMs: 10, getFaq: async () => "faq", getImageSets: async () => sampleSets(), readPhoto: async () => null, cardPauseMs: 0 });
 const taxOnly = "เลือกแบบที่ 1: รถยนต์ (กรอบป้ายภาษี พรบ. ขั้น 1 เลือกประเภทรถ)";
 
 test("พร้อมเพย์: CRC ตามมาตรฐาน · เบอร์มือถือ/เลข 13 หลัก · ยอดเงิน · เลขผิด = ไม่สร้าง", () => {
@@ -41,29 +41,38 @@ test("พร้อมเพย์: CRC ตามมาตรฐาน · เบ�
   assert.deepEqual(accountNumbers("ไม่มีเลข"), []);
 });
 
-test("ลูกค้า Facebook สั่งซื้อ → สรุปยอด + QR พร้อมเพย์ + เลขบัญชีแยก + ปุ่มกรอกที่อยู่ (หน้าเว็บ ผูกกับลูกค้าคนนี้)", async () => {
+const toUser = (sent: { to: string; texts: any[] }[], id: string) => sent.filter((x) => x.to === id).flatMap((x) => x.texts);
+
+test("ลูกค้า Facebook สั่งซื้อ → สรุปยอด (ไม่มีข้อมูลโอนในสรุป) → ช่องทางชำระเงิน 1 ข้อความ (ครบ 2 ธนาคาร) → ปุ่มกรอกที่อยู่ส่งทีหลัง", async () => {
   process.env.PROMPTPAY_ID = "0812345678";
   const { line, sent } = fakeLine();
   await handleEvent(ev({ type: "text", id: "t", text: taxOnly }, "fb:111"), deps(line));
-  const msgs = sent.find((s) => s.to === "fb:111")!.texts;
+  assert.equal(sent.filter((x) => x.to === "fb:111").length, 2); // ส่ง 2 รอบ: ปุ่มที่อยู่ตามหลังการ์ดธนาคาร
+  const msgs = toUser(sent, "fb:111");
   assert.match(msgs[0], /สรุปรายการสั่งซื้อ/);
-  assert.match(msgs[0], /สแกน QR พร้อมเพย์/);
-  assert.match(msgs[0], /กดค้างเพื่อคัดลอก/);
-  assert.equal(msgs[1].type, "image");
-  assert.match(msgs[1].originalContentUrl, /\/api\/qr\?o=/);
-  assert.equal(msgs[2], "123-4-56789-0");
-  assert.equal(msgs[3], "987-6-54321-0");
-  const uri = JSON.stringify(msgs[4]).match(/"uri":"([^"]+)"/)![1];
+  assert.ok(!msgs[0].includes("123-4-56789-0"));
+  assert.ok(!/กรุณาส่งสลิป/.test(msgs[0]));
+  assert.equal(msgs[1].type, "image"); // QR เฉพาะตอนตั้ง PROMPTPAY_ID
+  assert.match(msgs[2], /^💳 ช่องทางชำระเงิน\n/);
+  assert.ok(msgs[2].includes("123-4-56789-0") && msgs[2].includes("987-6-54321-0"));
+  assert.ok(!msgs.includes("123-4-56789-0")); // ไม่ส่งเลขเปล่า ๆ แยกแล้ว
+  const uri = JSON.stringify(msgs[3]).match(/"uri":"([^"]+)"/)![1];
   assert.match(uri, /\/order\?o=/);
-  assert.ok(!uri.includes("liff.line.me"));
   const order = verifyOrder(decodeURIComponent(uri.split("o=")[1]), SECRET)!;
   assert.equal(order.u, "fb:111");
   assert.equal(order.total, 69 + 15);
-
-  // ใน Messenger: ปุ่มกรอกที่อยู่เป็นปุ่มลิงก์จริง ไม่ใช่ข้อความลิงก์ยาว ๆ
-  const meta = toMetaMessages([msgs[4]]) as any[];
+  const meta = toMetaMessages([msgs[3]]) as any[];
   assert.equal(meta[0].attachment.payload.template_type, "button");
   assert.equal(meta[0].attachment.payload.buttons[0].type, "web_url");
+});
+
+test("PAYMENT_INFO บรรทัดเดียว → ช่องทางชำระเงินขึ้นบรรทัดใหม่หน้า emoji แต่ละตัว", () => {
+  assert.equal(
+    paymentMessage("🏦 ชื่อบัญชี ร้านทดสอบ 🌐 KTB : 054-0-20552-4 🔵 TTB : 224-2-65761-3"),
+    "💳 ช่องทางชำระเงิน\n🏦 ชื่อบัญชี ร้านทดสอบ\n🌐 KTB : 054-0-20552-4\n🔵 TTB : 224-2-65761-3",
+  );
+  assert.equal(paymentMessage("กรุงไทย 1\nttb 2"), "💳 ช่องทางชำระเงิน\nกรุงไทย 1\nttb 2");
+  assert.equal(paymentMessage(""), null);
 });
 
 test("ลูกค้า LINE ยังใช้แบบฟอร์ม LIFF เหมือนเดิม · ไม่ตั้ง PROMPTPAY_ID = ไม่ส่ง QR", async () => {
@@ -104,12 +113,12 @@ test("ลิงก์ออเดอร์: u ต้องเป็นลูก�
   assert.equal(verifyOrder(t, SECRET)!.u, undefined);
 });
 
-test("ไม่ใช้พร้อมเพย์ (ไม่ตั้ง PROMPTPAY_ID) → ลูกค้า Facebook ได้สรุปยอด + เลขบัญชี 2 ข้อความ + ปุ่มที่อยู่ (ไม่มี QR)", async () => {
+test("ไม่ใช้พร้อมเพย์ (ไม่ตั้ง PROMPTPAY_ID) → ลูกค้า Facebook ไม่มี QR", async () => {
   const { line, sent } = fakeLine();
   await handleEvent(ev({ type: "text", id: "t", text: taxOnly }, "fb:222"), deps(line));
-  const msgs = sent.find((s) => s.to === "fb:222")!.texts;
+  const msgs = toUser(sent, "fb:222");
   assert.ok(!msgs.some((m: any) => m?.type === "image"));
   assert.ok(!/QR/.test(msgs[0]));
-  assert.deepEqual(msgs.slice(1, 3), ["123-4-56789-0", "987-6-54321-0"]);
-  assert.match(JSON.stringify(msgs[3]), /\/order\?o=/);
+  assert.match(msgs[1], /ช่องทางชำระเงิน/);
+  assert.match(JSON.stringify(msgs[2]), /\/order\?o=/);
 });

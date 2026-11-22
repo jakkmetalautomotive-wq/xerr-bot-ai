@@ -10,7 +10,7 @@ import {
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer, REVIEW_PROMO, REVIEW_REMINDER } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage, paidConfirmMessage,
-  decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, type PricedOrder,
+  decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, paymentMessage, type PricedOrder,
 } from "./order.ts";
 import { accountNumbers, promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
 import { slipImageMessage } from "./slip.ts";
@@ -54,6 +54,8 @@ export interface BotDeps {
   getReviewPhotos?: () => Promise<ReviewPhoto[]>;
   // ลูกค้าพิมพ์ "มีแบบนี้ไหม" → รอรูปที่ส่งตามมากี่มิลลิวินาที (เทสต์ใส่ค่าน้อย)
   photoWaitMs?: number;
+  // Messenger: รอให้การ์ดธนาคารขึ้นก่อนส่งปุ่มกรอกที่อยู่ (เทสต์ใส่ 0)
+  cardPauseMs?: number;
   // อ่านรูปลูกค้าด้วย AI (เทสต์ใส่ตัวปลอม) · ไม่ใส่ = Gemini ดูรูป (ปิดได้ด้วย PHOTO_VISION=off)
   readPhoto?: (msg: { id: string; contentProvider?: { type?: string; originalContentUrl?: string } }, sets: ImageSet[]) => Promise<PhotoRead | null>;
 }
@@ -399,12 +401,23 @@ async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: strin
     : "";
   const formUrl = !token ? "" : meta ? `${baseUrl()}/order?o=${encodeURIComponent(token)}` : deps.liffId ? `https://liff.line.me/${deps.liffId}?o=${encodeURIComponent(token)}` : "";
   const qr = Boolean(token) && promptPayEnabled();
-  const accounts = accountNumbers(deps.paymentInfo ?? "");
-  const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, copyAccount: accounts.length > 0 })];
-  if (qr) out.push(promptPayImageMessage(token));
-  out.push(...accounts);
-  if (formUrl) out.push(addressButtonMessage(formUrl));
-  await send(deps, replyToken, userId, out);
+  if (meta) {
+    // Messenger: สรุปยอด → ช่องทางชำระเงิน (Messenger ทำการ์ดธนาคารพร้อมปุ่มโอน) → รอให้การ์ดขึ้นก่อน → ปุ่มกรอกที่อยู่
+    const pay = paymentMessage(deps.paymentInfo ?? "");
+    await send(deps, replyToken, userId, [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, payInline: false }), ...(qr ? [promptPayImageMessage(token)] : []), ...(pay ? [pay] : [])]);
+    if (formUrl) {
+      await new Promise((r) => setTimeout(r, deps.cardPauseMs ?? 3000));
+      await send(deps, replyToken, userId, [addressButtonMessage(formUrl)]);
+    }
+  } else {
+    // LINE: ข้อมูลโอนอยู่ในสรุป + เลขบัญชีแยกข้อความ (กดค้างคัดลอก)
+    const accounts = accountNumbers(deps.paymentInfo ?? "");
+    const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, copyAccount: accounts.length > 0 })];
+    if (qr) out.push(promptPayImageMessage(token));
+    out.push(...accounts);
+    if (formUrl) out.push(addressButtonMessage(formUrl));
+    await send(deps, replyToken, userId, out);
+  }
   // จำออเดอร์ล่าสุด → ลูกค้าส่งสลิปมา แอดมินได้ปุ่ม ✅/❌ ใต้รูปสลิปเลย
   await (deps.state ?? defaultState).set(openOrderKey(userId), JSON.stringify({ code: order.code, total: order.total }), OPEN_ORDER_SECONDS).catch(() => {});
   addTurn(userId, turnText, `ส่งสรุปออเดอร์ ${order.code} ยอด ${order.total}.- แล้ว รอลูกค้ากรอกที่อยู่และโอน`);
