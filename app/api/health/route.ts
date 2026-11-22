@@ -1,6 +1,7 @@
 // เช็คสุขภาพบอท: /api/health (เช็ค Sheet — เปิดสาธารณะ ไม่กินโควตา)
 // /api/health?gemini=1&key=HEALTH_KEY (เช็ค Gemini — ต้องมี key · จำผลไว้ 60 วิ กันกดรัว · &full=1 ถามจริงด้วย FAQ เต็ม)
 // ไม่แสดงคีย์ใด ๆ — แสดงแค่ผ่าน/ไม่ผ่าน + ข้อความ error
+import crypto from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
 import { getFaq, sheetUrls } from "@/lib/sheet.ts";
 import { MODEL, FALLBACK_MODEL, THINKING, askGemini } from "@/lib/gemini.ts";
@@ -47,6 +48,13 @@ export async function GET(req: Request) {
       }
     };
     const meta = out.meta as Record<string, unknown>;
+    // ลายนิ้วมือ Token (เดาย้อนกลับไม่ได้) → รู้ว่า Redeploy แล้ว Token เปลี่ยนจริงไหม · ชนิด/เพจ/สิทธิ์ของ Token (ไม่ใช่ข้อมูลลับ)
+    meta.tokenFingerprint = crypto.createHash("sha256").update(pageToken).digest("hex").slice(0, 8);
+    const dbg = await graph(`debug_token?input_token=${encodeURIComponent(pageToken)}`);
+    const d = dbg.data as { type?: string; app_id?: string; profile_id?: string; is_valid?: boolean; scopes?: string[]; granular_scopes?: { scope: string; target_ids?: string[] }[]; error?: { message?: string } } | undefined;
+    meta.tokenInfo = d
+      ? { type: d.type, valid: d.is_valid, appId: d.app_id, pageId: d.profile_id, scopes: d.scopes, pagesGranted: d.granular_scopes?.filter((g) => g.scope.startsWith("pages_")).map((g) => ({ scope: g.scope, pages: g.target_ids })), error: d.error?.message }
+      : dbg;
     meta.tokenPage = await graph("me?fields=id");
     const subs = await graph("me/subscribed_apps");
     meta.tokenPageApps = Array.isArray(subs.data) ? (subs.data as { name?: string; subscribed_fields?: string[] }[]).map((a) => ({ name: a.name, fields: a.subscribed_fields })) : subs;
