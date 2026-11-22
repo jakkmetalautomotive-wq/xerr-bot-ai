@@ -13,6 +13,7 @@ import {
   decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
 } from "./order.ts";
 import { slipImageMessage } from "./slip.ts";
+import { fetchCustomerImage, readPhoto, type PhotoRead } from "./vision.ts";
 import { defaultState, type StateStore } from "./state.ts";
 import { getLabel, labelReadyText, labelUrl } from "./label.ts";
 import { parseReviewQuery, pickReviews, reviewMessages, toReviewPhotos, loadReviewFiles, reviewOrderCard, soldPhotos, isSold, askedDesign, type ReviewPhoto } from "./reviews.ts";
@@ -52,6 +53,8 @@ export interface BotDeps {
   getReviewPhotos?: () => Promise<ReviewPhoto[]>;
   // ลูกค้าพิมพ์ "มีแบบนี้ไหม" → รอรูปที่ส่งตามมากี่มิลลิวินาที (เทสต์ใส่ค่าน้อย)
   photoWaitMs?: number;
+  // อ่านรูปลูกค้าด้วย AI (เทสต์ใส่ตัวปลอม) · ไม่ใส่ = Gemini ดูรูป (ปิดได้ด้วย PHOTO_VISION=off)
+  readPhoto?: (msg: { id: string; contentProvider?: { type?: string; originalContentUrl?: string } }, sets: ImageSet[]) => Promise<PhotoRead | null>;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
@@ -103,13 +106,16 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
 
   if (msg.type === "image" || msg.type === "file" || msg.type === "video") {
     const image = msg.type === "image" && deps.orderSecret ? slipImageMessage(msg, deps.orderSecret) : null;
-    // ลูกค้าเพิ่งพิมพ์ "มีแบบนี้ไหม" → รูปนี้คือรูปสินค้า ไม่ใช่สลิป: บอทมองรูปไม่เห็น → ส่งการ์ดให้เลือกเอง + ส่งรูปให้แอดมินดู (ไม่เดาลาย)
+    // AI ดูรูป: สลิป / รูปกรอบป้าย / ของเสียหาย · รูปกรอบป้าย หรือลูกค้าเพิ่งพิมพ์ "มีแบบนี้ไหม" → ส่งการ์ดให้เลือกลายเอง + รูปให้แอดมินยืนยัน (ไม่ยืนยันลายเอง)
+    let read: PhotoRead | null = null;
     if (msg.type === "image" && isCustomer) {
       await state.set(photoKey(userId), "pending", PHOTO_SECONDS);
-      if ((await state.get(photoAskKey(userId))) !== null) {
+      read = await readCustomerPhoto(deps, msg).catch(() => null);
+      const asked = (await state.get(photoAskKey(userId))) !== null;
+      if (asked || read?.kind === "plate_frame") {
         await state.set(photoKey(userId), "ask", PHOTO_SECONDS);
-        await sendPhotoAsk(deps, replyToken, userId);
-        await notifyAdmin(deps, userId, "ลูกค้าส่งรูปสินค้า ถามว่ามีแบบนี้ไหม — บอทดูลายจากรูปไม่ได้ ส่งการ์ดให้ลูกค้าเลือกเองแล้ว ช่วยดูรูปแล้วยืนยันลายให้ลูกค้าด้วย 👇", image ? [image] : []);
+        await sendPhotoAsk(deps, replyToken, userId, read?.product);
+        await notifyAdmin(deps, userId, `ลูกค้าส่งรูปกรอบป้าย${asked ? " ถามว่ามีแบบนี้ไหม" : ""}${aiSaw(read)} — ส่งการ์ดให้ลูกค้าเลือกลายเองแล้ว ช่วยดูรูปแล้วยืนยันลายให้ลูกค้าด้วย 👇`, image ? [image] : []);
         return;
       }
       await state.set(photoKey(userId), "slip", PHOTO_SECONDS);
@@ -121,7 +127,11 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     await notifyAdmin(
       deps,
       userId,
-      image ? "ลูกค้าส่งรูป (อาจเป็นสลิปหรือรูปของเสียหาย) — รูปอยู่ด้านล่าง 👇" : "ลูกค้าส่งรูป/ไฟล์ (อาจเป็นสลิปหรือรูปของเสียหาย)",
+      !image ? "ลูกค้าส่งรูป/ไฟล์ (อาจเป็นสลิปหรือรูปของเสียหาย)"
+        : read?.kind === "slip" ? `ลูกค้าส่งสลิปโอนเงิน${aiSaw(read)} — รูปอยู่ด้านล่าง 👇`
+        : read?.kind === "damage" ? `ลูกค้าส่งรูปของเสียหาย/ส่งผิด${aiSaw(read)} — รูปอยู่ด้านล่าง 👇`
+        : read ? `ลูกค้าส่งรูป${aiSaw(read)} — รูปอยู่ด้านล่าง 👇`
+        : "ลูกค้าส่งรูป (อาจเป็นสลิปหรือรูปของเสียหาย) — รูปอยู่ด้านล่าง 👇",
       image ? [image] : [],
     );
     return;
@@ -444,12 +454,36 @@ async function waitForPhoto(state: StateStore, userId: string, waitMs: number): 
   }
 }
 
-async function sendPhotoAsk(deps: BotDeps, replyToken: string, userId: string) {
+// AI รู้ประเภทกรอบ → ส่งขั้นแรกของประเภทนั้น (ลูกค้าเลือกสี/ลายเอง) · ไม่รู้ → การ์ดเลือกประเภท
+async function sendPhotoAsk(deps: BotDeps, replyToken: string, userId: string, product = "") {
   const sets: ImageSet[] = await (deps.getImageSets ?? getImageSets)().catch(() => []);
+  const first = product ? firstStepSet(sets, product) : undefined;
+  if (first?.items.length) {
+    const text = `ได้รับรูปแล้วครับ 🙏 ดูจากรูปน่าจะเป็น${productLabel(product)}ครับ ${stepTitle(first.name) || "เลือกแบบ"}ที่ต้องการจากการ์ดได้เลย แอดมินจะช่วยดูรูปให้อีกทีครับ 😊`;
+    await send(deps, replyToken, userId, withSet([text], first, []));
+    addTurn(userId, "[ลูกค้าส่งรูปกรอบป้าย]", `${text}
+[ส่งการ์ดรูปชุด "${first.name}" ให้ลูกค้าเลือกแล้ว]`);
+    return;
+  }
   const category = sets.find((s) => s.name === CATEGORY_SET);
   await send(deps, replyToken, userId, category ? [PHOTO_ASK_REPLY, buildCarousel(category)] : [PHOTO_ASK_REPLY]);
-  addTurn(userId, "[ลูกค้าส่งรูปสินค้า ถามว่ามีแบบนี้ไหม]", `[บอทมองไม่เห็นรูป · ส่งการ์ด "${CATEGORY_SET}" ให้เลือกเองแล้ว · แอดมินจะดูรูปให้]`);
+  addTurn(userId, "[ลูกค้าส่งรูปสินค้า ถามว่ามีแบบนี้ไหม]", `[ไม่รู้ประเภทจากรูป · ส่งการ์ด "${CATEGORY_SET}" ให้เลือกเองแล้ว · แอดมินจะดูรูปให้]`);
 }
+
+async function readCustomerPhoto(deps: BotDeps, msg: { id: string; contentProvider?: { type?: string; originalContentUrl?: string } }): Promise<PhotoRead | null> {
+  const sets: ImageSet[] = await (deps.getImageSets ?? getImageSets)().catch(() => []);
+  if (deps.readPhoto) return deps.readPhoto(msg, sets);
+  if (!process.env.GEMINI_API_KEY || process.env.PHOTO_VISION === "off") return null;
+  const photo = await fetchCustomerImage(msg);
+  return photo ? readPhoto(photo, sets.find((s) => s.name === CATEGORY_SET)) : null;
+}
+
+// สิ่งที่ AI เห็นในรูป → ต่อท้ายข้อความแจ้งแอดมิน
+const aiSaw = (read: PhotoRead | null) => {
+  if (!read) return "";
+  const bits = [read.product && productLabel(read.product), read.color, read.note].filter(Boolean);
+  return bits.length ? ` (AI ดูรูปแล้ว: ${bits.join(" · ")})` : "";
+};
 
 // แทรก REVIEW_PROMO ในคำตอบครั้งแรก (ครั้งเดียว) · ข้อความสุดท้ายมีปุ่มด่วน → แทรกก่อน (ปุ่มด่วนแสดงใต้ข้อความสุดท้ายเท่านั้น)
 // LINE ส่งได้ไม่เกิน 5 ข้อความต่อครั้ง → เต็มแล้วข้ามไป

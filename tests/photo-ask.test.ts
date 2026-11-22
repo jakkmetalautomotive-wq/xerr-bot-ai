@@ -48,7 +48,7 @@ test("ข้อความ 'มีแบบนี้ไหม' มาก่อ�
   assert.match(cardTitles(toCustomer[0].texts[1]), new RegExp(CATEGORY_SET));
   assert.ok(!JSON.stringify(toCustomer).includes("เคฟล่า ดำ เลือกขนาด"));
   const admin = sent.find((s) => s.to === "UADMIN")!;
-  assert.match(admin.texts[0], /รูปสินค้า/);
+  assert.match(admin.texts[0], /รูปกรอบป้าย ถามว่ามีแบบนี้ไหม/);
   assert.equal(admin.texts.length, 2); // ข้อความ + รูป
 });
 
@@ -89,4 +89,53 @@ test("กดเลือกสีจากการ์ดแล้ว AI ส่�
   const out = JSON.stringify(sent.filter((s) => s.to === "fb:111"));
   assert.match(out, /อะคริลิค ขั้น 2 เลือกขนาด/);
   assert.match(out, /เลือกแล้ว: ลายเคฟล่า ดำ มีเส้นขอบ/);
+});
+
+// ---------- AI ดูรูป ----------
+import { readPhoto, parsePhotoRead } from "../lib/vision.ts";
+
+test("AI ดูรูปเป็นกรอบอะคริลิค (ไม่ได้พิมพ์อะไร) → การ์ดขั้น 1 เลือกสีของอะคริลิค · ไม่บอกลายเอง · แอดมินเห็นสิ่งที่ AI เห็น", async () => {
+  const { line, sent } = fakeLine();
+  const d = { ...deps(line), readPhoto: async () => ({ kind: "plate_frame" as const, product: "อะคริลิค", color: "ดำเรียบ", note: "กรอบสีดำพร้อมแผ่นหลัง" }) };
+  await handleEvent(image(), d);
+  const [msg] = sent.filter((s) => s.to === "fb:111");
+  assert.match(msg.texts[0], /อะคริลิค/);
+  assert.ok(!/ดำเรียบ/.test(JSON.stringify(msg.texts[0])));
+  assert.match(JSON.stringify(msg.texts), /อะคริลิค ขั้น 1 เลือกสี/);
+  const admin = sent.find((s) => s.to === "UADMIN")!;
+  assert.match(admin.texts[0], /AI ดูรูปแล้ว: .*ดำเรียบ/);
+});
+
+test("AI ดูรูปเป็นสลิป → ตอบแบบเดิม + แจ้งแอดมินว่าเป็นสลิป · AI ล่ม → ตอบแบบเดิม", async () => {
+  const { line, sent } = fakeLine();
+  await handleEvent(image(), { ...deps(line), readPhoto: async () => ({ kind: "slip" as const, product: "", color: "", note: "สลิป 419 บาท" }) });
+  assert.equal(sent.find((s) => s.to === "fb:111")!.texts[0], IMAGE_REPLY);
+  assert.match(sent.find((s) => s.to === "UADMIN")!.texts[0], /สลิปโอนเงิน/);
+
+  _resetLocalState();
+  const b = fakeLine();
+  await handleEvent(image(), { ...deps(b.line), readPhoto: async () => { throw new Error("boom"); } });
+  assert.equal(b.sent.find((s) => s.to === "fb:111")!.texts[0], IMAGE_REPLY);
+});
+
+test("readPhoto: แนบรูปตัวอย่างของร้าน + รูปลูกค้า · ประเภทนอกรายการ → ว่าง · รุ่นแรกล่ม → ลองรุ่นถัดไป", async () => {
+  const sets = sampleSets();
+  const category = sets.find((s) => s.name === CATEGORY_SET)!;
+  const fetchFn = (async () => new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } })) as typeof fetch;
+  const calls: any[] = [];
+  const generate = (async (p: any) => {
+    calls.push(p);
+    if (calls.length === 1) throw new Error("503 UNAVAILABLE");
+    return { text: JSON.stringify({ kind: "plate_frame", product: "อะคริลิค", color: "ลายเคฟล่าดำ", note: "x" }) };
+  }) as any;
+  const r = await readPhoto({ data: "AAAA", mimeType: "image/jpeg" }, category, { generate, fetchFn, models: ["m1", "m2"] });
+  assert.deepEqual(r, { kind: "plate_frame", product: "อะคริลิค", color: "ลายเคฟล่าดำ", note: "x" });
+  assert.deepEqual(calls.map((c) => c.model), ["m1", "m2"]);
+  const parts = calls[1].contents[0].parts;
+  assert.equal(parts.filter((p: any) => p.inlineData).length, category.items.length + 1);
+  assert.equal(parts.at(-1).inlineData.data, "AAAA");
+
+  assert.equal(parsePhotoRead(JSON.stringify({ kind: "plate_frame", product: "ทอง", color: "", note: "" }), ["อะคริลิค"])?.product, "");
+  assert.equal(parsePhotoRead(JSON.stringify({ kind: "slip", product: "อะคริลิค", color: "", note: "" }), ["อะคริลิค"])?.product, "");
+  assert.equal(parsePhotoRead("oops", []), null);
 });
