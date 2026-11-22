@@ -50,6 +50,8 @@ export interface BotDeps {
   state?: StateStore;
   // รูปรีวิวลูกค้า (ใส่ในเทสต์) · ไม่ใส่ = อ่านจาก Drive ผ่าน Apps Script
   getReviewPhotos?: () => Promise<ReviewPhoto[]>;
+  // ลูกค้าพิมพ์ "มีแบบนี้ไหม" → รอรูปที่ส่งตามมากี่มิลลิวินาที (เทสต์ใส่ค่าน้อย)
+  photoWaitMs?: number;
 }
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
@@ -100,11 +102,22 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   const muted = (await state.get(muteKey(userId))) !== null;
 
   if (msg.type === "image" || msg.type === "file" || msg.type === "video") {
+    const image = msg.type === "image" && deps.orderSecret ? slipImageMessage(msg, deps.orderSecret) : null;
+    // ลูกค้าเพิ่งพิมพ์ "มีแบบนี้ไหม" → รูปนี้คือรูปสินค้า ไม่ใช่สลิป: บอทมองรูปไม่เห็น → ส่งการ์ดให้เลือกเอง + ส่งรูปให้แอดมินดู (ไม่เดาลาย)
+    if (msg.type === "image" && isCustomer) {
+      await state.set(photoKey(userId), "pending", PHOTO_SECONDS);
+      if ((await state.get(photoAskKey(userId))) !== null) {
+        await state.set(photoKey(userId), "ask", PHOTO_SECONDS);
+        await sendPhotoAsk(deps, replyToken, userId);
+        await notifyAdmin(deps, userId, "ลูกค้าส่งรูปสินค้า ถามว่ามีแบบนี้ไหม — บอทดูลายจากรูปไม่ได้ ส่งการ์ดให้ลูกค้าเลือกเองแล้ว ช่วยดูรูปแล้วยืนยันลายให้ลูกค้าด้วย 👇", image ? [image] : []);
+        return;
+      }
+      await state.set(photoKey(userId), "slip", PHOTO_SECONDS);
+    }
     // ช่วงพัก: ส่งรูปเข้าแชทแอดมินตามปกติ แต่ไม่ตอบ "ได้รับรูปแล้ว" ซ้ำ
     if (!muted) await send(deps, replyToken, userId, [IMAGE_REPLY, adminNotice()]);
     await state.set(muteKey(userId), "1", MUTE_SECONDS);
     // รูป → ส่งรูปนั้นเข้าแชทแอดมินด้วย (ดูสลิปแล้วกด ✅ ได้เลย) · ไฟล์ / วิดีโอ → แจ้งให้ไปดูใน OA Manager
-    const image = msg.type === "image" && deps.orderSecret ? slipImageMessage(msg, deps.orderSecret) : null;
     await notifyAdmin(
       deps,
       userId,
@@ -129,6 +142,19 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   faqPromise.catch(() => {}); // error จัดการด้านล่าง
   const sets: ImageSet[] = await (deps.getImageSets ?? getImageSets)().catch(() => []);
   const choice = parseChoice(question, sets); // ลูกค้าเพิ่งกดปุ่มเลือกจากการ์ดไหม
+
+  // "มีแบบนี้ไหม / แบบในรูป" → ข้อความกับรูปมาแยกกัน (ลำดับไม่แน่นอน) → จับคู่กันก่อน ไม่ให้ AI เดาลายจากข้อความอย่างเดียว
+  if (!choice && isCustomer && msg.type === "text" && PHOTO_ASK.test(question)) {
+    await state.set(photoAskKey(userId), "1", PHOTO_ASK_SECONDS);
+    const seen = await waitForPhoto(state, userId, deps.photoWaitMs ?? 4000);
+    if (seen === "ask" || seen === "pending") return; // ฝั่งรูปตอบให้แล้ว / กำลังตอบ
+    if (seen === "slip") {
+      // รูปมาก่อน (ตอบไปแล้วว่า "ได้รับรูป") → ส่งการ์ดให้เลือกต่อ + บอกแอดมินว่ารูปนั้นคือรูปสินค้า
+      await sendPhotoAsk(deps, replyToken, userId);
+      await notifyAdmin(deps, userId, `รูปที่ลูกค้าเพิ่งส่งคือรูปสินค้า (ไม่ใช่สลิป) ลูกค้าถามว่า: ${question.slice(0, 200)} — ส่งการ์ดให้เลือกเองแล้ว ช่วยยืนยันลายให้ลูกค้าด้วย`);
+      return;
+    }
+  }
 
   // ปุ่ม Rich Menu ที่ตอบได้ด้วยโค้ด
   const category = sets.find((s) => s.name === CATEGORY_SET);
@@ -227,9 +253,21 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     answer = choice ? choiceFallback(sets, choice) : { reply: ERROR_REPLY, needsAdmin: true, adminNote: `ระบบขัดข้อง (${(err as Error).message}) ลูกค้าพิมพ์ว่า: ${question.slice(0, 200)}` };
   }
 
+  let set = answer.showSet ? findSet(sets, answer.showSet) : undefined;
+  // ห้ามข้ามขั้น: ตัวเลือกต้องมาจากการกดการ์ดเท่านั้น (ปุ่มพกตัวเลือกไปถึงสรุปยอด) → AI จะส่งขั้น 2+ เองไม่ได้
+  const step = set ? stepOf(set.name) : null;
+  if (step && choice && stepOf(choice.set.name)?.product === step.product) {
+    set = nextStepSet(sets, choice.set, choice.picked);
+  } else if (step && step.step > 1) {
+    const first = firstStepSet(sets, step.product);
+    if (first) {
+      set = first;
+      // คำตอบของ AI อาจอ้างลาย/สีที่ลูกค้ายังไม่ได้เลือก → ใช้ข้อความกลางแทน
+      if (!answer.needsAdmin) answer = { ...answer, reply: `${productLabel(step.product)} 😊 ${stepTitle(first.name) || "เลือกแบบ"}ได้เลยครับ` };
+    }
+  }
   let out: OutMessage[] = [answer.reply];
   if (answer.needsAdmin) out.push(adminNotice());
-  let set = answer.showSet ? findSet(sets, answer.showSet) : undefined;
   // กันพลาด: ลูกค้ากดเลือกขั้น N แต่ AI ลืมส่งขั้นถัดไป → ส่งให้เอง
   if (!set && !answer.needsAdmin && choice) set = nextStepSet(sets, choice.set, choice.picked);
   // ปุ่มของการ์ดชุดถัดไปพกตัวเลือกที่เลือกมาแล้ว → บอทรู้ครบแม้หน่วยความจำหาย
@@ -388,6 +426,30 @@ export const MUTE_SECONDS = 10 * 60;
 const GREET_SECONDS = 30 * 24 * 60 * 60;
 const muteKey = (userId: string) => `mute:${userId}`;
 const greetKey = (userId: string) => `greet:${userId}`;
+
+// รูปสินค้า + "มีแบบนี้ไหม": ฝั่งรูปบันทึกสถานะ pending → ask (ตอบเป็นคำถามสินค้า) / slip (ตอบแบบสลิป) · ฝั่งข้อความบันทึกว่าถามอยู่
+export const PHOTO_ASK = /แบบนี้|อันนี้|ตัวนี้|ลายนี้|สีนี้|ทรงนี้|ตามรูป|ในรูป|ตามภาพ|ในภาพ|แบบรูป|เหมือนรูป|เหมือนในรูป/;
+const PHOTO_SECONDS = 90;
+const PHOTO_ASK_SECONDS = 60;
+const photoKey = (userId: string) => `photo:${userId}`;
+const photoAskKey = (userId: string) => `photoask:${userId}`;
+export const PHOTO_ASK_REPLY = "ได้รับรูปแล้วครับ 🙏 แอดมินจะดูรูปให้อีกที ระหว่างนี้เลือกประเภทกรอบจากการ์ดด้านล่างได้เลยครับ จะได้ลายตรงตามที่ต้องการ 😊";
+
+async function waitForPhoto(state: StateStore, userId: string, waitMs: number): Promise<string | null> {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    const v = await state.get(photoKey(userId)).catch(() => null);
+    if (v === "ask" || v === "slip" || Date.now() >= until) return v;
+    await new Promise((r) => setTimeout(r, Math.min(500, Math.max(1, until - Date.now()))));
+  }
+}
+
+async function sendPhotoAsk(deps: BotDeps, replyToken: string, userId: string) {
+  const sets: ImageSet[] = await (deps.getImageSets ?? getImageSets)().catch(() => []);
+  const category = sets.find((s) => s.name === CATEGORY_SET);
+  await send(deps, replyToken, userId, category ? [PHOTO_ASK_REPLY, buildCarousel(category)] : [PHOTO_ASK_REPLY]);
+  addTurn(userId, "[ลูกค้าส่งรูปสินค้า ถามว่ามีแบบนี้ไหม]", `[บอทมองไม่เห็นรูป · ส่งการ์ด "${CATEGORY_SET}" ให้เลือกเองแล้ว · แอดมินจะดูรูปให้]`);
+}
 
 // แทรก REVIEW_PROMO ในคำตอบครั้งแรก (ครั้งเดียว) · ข้อความสุดท้ายมีปุ่มด่วน → แทรกก่อน (ปุ่มด่วนแสดงใต้ข้อความสุดท้ายเท่านั้น)
 // LINE ส่งได้ไม่เกิน 5 ข้อความต่อครั้ง → เต็มแล้วข้ามไป
