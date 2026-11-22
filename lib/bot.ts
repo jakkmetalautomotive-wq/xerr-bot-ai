@@ -10,7 +10,7 @@ import {
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer, REVIEW_PROMO, REVIEW_REMINDER } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage, paidConfirmMessage,
-  decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, paymentMessage, type PricedOrder,
+  decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, type PricedOrder,
 } from "./order.ts";
 import { accountNumbers, promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
 import { slipImageMessage } from "./slip.ts";
@@ -402,9 +402,8 @@ async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: strin
   const formUrl = !token ? "" : meta ? `${baseUrl()}/order?o=${encodeURIComponent(token)}` : deps.liffId ? `https://liff.line.me/${deps.liffId}?o=${encodeURIComponent(token)}` : "";
   const qr = Boolean(token) && promptPayEnabled();
   if (meta) {
-    // Messenger: สรุปยอด → ช่องทางชำระเงิน (Messenger ทำการ์ดธนาคารพร้อมปุ่มโอน) → รอให้การ์ดขึ้นก่อน → ปุ่มกรอกที่อยู่
-    const pay = paymentMessage(deps.paymentInfo ?? "");
-    await send(deps, replyToken, userId, [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, payInline: false }), ...(qr ? [promptPayImageMessage(token)] : []), ...(pay ? [pay] : [])]);
+    // Messenger: สรุปยอด (มีช่องทางชำระเงินในตัว · Messenger ทำการ์ดธนาคารพร้อมปุ่มโอน) → รอให้การ์ดขึ้นก่อน → ปุ่มกรอกที่อยู่
+    await send(deps, replyToken, userId, [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr }), ...(qr ? [promptPayImageMessage(token)] : [])]);
     if (formUrl) {
       await new Promise((r) => setTimeout(r, deps.cardPauseMs ?? 3000));
       await send(deps, replyToken, userId, [addressButtonMessage(formUrl)]);

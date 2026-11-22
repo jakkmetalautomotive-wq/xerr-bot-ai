@@ -43,25 +43,24 @@ test("พร้อมเพย์: CRC ตามมาตรฐาน · เบ�
 
 const toUser = (sent: { to: string; texts: any[] }[], id: string) => sent.filter((x) => x.to === id).flatMap((x) => x.texts);
 
-test("ลูกค้า Facebook สั่งซื้อ → สรุปยอด (ไม่มีข้อมูลโอนในสรุป) → ช่องทางชำระเงิน 1 ข้อความ (ครบ 2 ธนาคาร) → ปุ่มกรอกที่อยู่ส่งทีหลัง", async () => {
+test("ลูกค้า Facebook สั่งซื้อ → สรุปยอดที่มีช่องทางชำระเงินในตัว (ไม่มีเลขเปล่า ๆ แยก) → ปุ่มกรอกที่อยู่ส่งทีหลัง", async () => {
   process.env.PROMPTPAY_ID = "0812345678";
   const { line, sent } = fakeLine();
   await handleEvent(ev({ type: "text", id: "t", text: taxOnly }, "fb:111"), deps(line));
   assert.equal(sent.filter((x) => x.to === "fb:111").length, 2); // ส่ง 2 รอบ: ปุ่มที่อยู่ตามหลังการ์ดธนาคาร
   const msgs = toUser(sent, "fb:111");
   assert.match(msgs[0], /สรุปรายการสั่งซื้อ/);
-  assert.ok(!msgs[0].includes("123-4-56789-0"));
-  assert.ok(!/กรุณาส่งสลิป/.test(msgs[0]));
+  assert.ok(msgs[0].includes("123-4-56789-0"));
+  assert.match(msgs[0], /กรุณาส่งสลิป/);
+  assert.ok(!/กดค้างเพื่อคัดลอก/.test(msgs[0]));
   assert.equal(msgs[1].type, "image"); // QR เฉพาะตอนตั้ง PROMPTPAY_ID
-  assert.match(msgs[2], /^💳 ช่องทางชำระเงิน\n/);
-  assert.ok(msgs[2].includes("123-4-56789-0") && msgs[2].includes("987-6-54321-0"));
-  assert.ok(!msgs.includes("123-4-56789-0")); // ไม่ส่งเลขเปล่า ๆ แยกแล้ว
-  const uri = JSON.stringify(msgs[3]).match(/"uri":"([^"]+)"/)![1];
+  assert.ok(!msgs.includes("123-4-56789-0")); // ไม่ส่งเลขเปล่า ๆ แยก
+  const uri = JSON.stringify(msgs[2]).match(/"uri":"([^"]+)"/)![1];
   assert.match(uri, /\/order\?o=/);
   const order = verifyOrder(decodeURIComponent(uri.split("o=")[1]), SECRET)!;
   assert.equal(order.u, "fb:111");
   assert.equal(order.total, 69 + 15);
-  const meta = toMetaMessages([msgs[3]]) as any[];
+  const meta = toMetaMessages([msgs[2]]) as any[];
   assert.equal(meta[0].attachment.payload.template_type, "button");
   assert.equal(meta[0].attachment.payload.buttons[0].type, "web_url");
 });
@@ -119,6 +118,5 @@ test("ไม่ใช้พร้อมเพย์ (ไม่ตั้ง PROMP
   const msgs = toUser(sent, "fb:222");
   assert.ok(!msgs.some((m: any) => m?.type === "image"));
   assert.ok(!/QR/.test(msgs[0]));
-  assert.match(msgs[1], /ช่องทางชำระเงิน/);
-  assert.match(JSON.stringify(msgs[2]), /\/order\?o=/);
+  assert.match(JSON.stringify(msgs[1]), /\/order\?o=/);
 });

@@ -97,7 +97,7 @@ export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: b
     ...(qr ? ["📱 สแกน QR พร้อมเพย์ด้านล่างได้เลย (ใส่ยอดให้แล้ว)"] : []),
     ...(copyAccount ? ["📋 เลขบัญชีส่งแยกไว้ด้านล่าง กดปุ่มโอนในแชท หรือกดค้างเพื่อคัดลอกได้เลยครับ"] : []),
   ];
-  const info = paymentInfo.trim();
+  const info = formatPaymentInfo(paymentInfo);
   const pay = info || qr
     ? ["เมื่อ Confirm สินค้าแล้ว สามารถโอนชำระได้เลยนะครับ", "", ...(info ? [info] : []), ...howTo, "‼️กรุณาส่งสลิปโอนเงินมาในแชตด้วยนะครับ ‼️"].join("\n")
     : "เดี๋ยวแอดมินส่งเลขบัญชีให้นะครับ";
@@ -122,11 +122,13 @@ export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: b
 
 // ข้อความช่องทางชำระเงินแยก (Messenger): PAYMENT_INFO บรรทัดเดียว → ขึ้นบรรทัดใหม่หน้า emoji แต่ละตัว
 // Messenger เห็นเลขบัญชีในข้อความ → ทำการ์ดธนาคารพร้อมปุ่มโอนให้เอง (เฉพาะธนาคารที่ Meta รองรับ)
-export function paymentMessage(paymentInfo: string): string | null {
+export function formatPaymentInfo(paymentInfo: string): string {
   const info = paymentInfo.trim();
-  if (!info) return null;
-  const lines = info.includes("\n") ? info : info.replace(/\s*(\p{Extended_Pictographic})/gu, "\n$1").trim();
-  return `💳 ช่องทางชำระเงิน\n${lines}`;
+  return info.includes("\n") ? info : info.replace(/\s*(\p{Extended_Pictographic})/gu, "\n$1").trim();
+}
+export function paymentMessage(paymentInfo: string): string | null {
+  const info = formatPaymentInfo(paymentInfo);
+  return info ? `💳 ช่องทางชำระเงิน\n${info}` : null;
 }
 
 // ---------- ปุ่ม (postback) ----------
