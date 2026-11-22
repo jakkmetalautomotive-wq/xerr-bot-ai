@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import liff from "@line/liff";
 
-type Draft = { code: string; product: string; picks: string[]; tax: boolean; total?: number };
+// u = ลูกค้า Facebook/Instagram → เปิดในเบราว์เซอร์ของ Messenger ได้เลย ไม่ต้องใช้ LINE
+type Draft = { code: string; product: string; picks: string[]; tax: boolean; total?: number; u?: string };
 
 // อ่านข้อมูลออเดอร์จากลิงก์ (ไว้แสดงผล — ฝั่งเซิร์ฟเวอร์ตรวจลายเซ็นและคิดยอดใหม่เองอีกรอบ)
 function readDraft(token: string): Draft | null {
@@ -54,7 +55,17 @@ export default function OrderForm({ liffId }: { liffId: string }) {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState<{ code: string; total: number } | null>(null);
 
+  const web = Boolean(draft?.u); // ลูกค้า Facebook/Instagram
+
   useEffect(() => {
+    const first = tokenFromUrl();
+    const fd = first ? readDraft(first) : null;
+    if (fd?.u) {
+      setToken(first);
+      setDraft(fd);
+      setReady(true);
+      return;
+    }
     if (!liffId) return setError("ยังไม่ได้ตั้งค่า LIFF_ID ใน Vercel");
     liff
       .init({ liffId })
@@ -78,11 +89,11 @@ export default function OrderForm({ liffId }: { liffId: string }) {
     setError("");
     setSending(true);
     try {
-      const inChat = liff.isInClient();
+      const inChat = !web && liff.isInClient();
       const res = await fetch("/api/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, token, idToken: liff.getIDToken(), chatMessageSent: inChat }),
+        body: JSON.stringify({ ...form, token, idToken: web ? "" : liff.getIDToken(), chatMessageSent: inChat }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "ส่งไม่สำเร็จ");
@@ -104,11 +115,15 @@ export default function OrderForm({ liffId }: { liffId: string }) {
           <br />
           ยอดชำระ <b>{done.total.toLocaleString("en-US")}.-</b>
           <br />
-          โอนแล้วส่งสลิปในแชท LINE ได้เลยครับ 🙏
+          โอนแล้วส่งสลิปในแชท{web ? " Messenger" : " LINE"} ได้เลยครับ 🙏
         </div>
-        <button style={S.btn} onClick={() => liff.closeWindow()}>
-          กลับไปที่แชท
-        </button>
+        {web ? (
+          <p style={{ fontSize: 14, color: "#555" }}>ปิดหน้านี้แล้วกลับไปที่แชทได้เลยครับ</p>
+        ) : (
+          <button style={S.btn} onClick={() => liff.closeWindow()}>
+            กลับไปที่แชท
+          </button>
+        )}
       </main>
     );
 

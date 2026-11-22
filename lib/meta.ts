@@ -84,7 +84,8 @@ type MetaQuickReply = { content_type: "text"; title: string; payload: string };
 export type MetaMessage =
   | { text: string; quick_replies?: MetaQuickReply[] }
   | { attachment: { type: "image"; payload: { url: string; is_reusable: boolean } } }
-  | { attachment: { type: "template"; payload: { template_type: "generic"; image_aspect_ratio?: "square" | "horizontal"; elements: MetaCard[] } } };
+  | { attachment: { type: "template"; payload: { template_type: "generic"; image_aspect_ratio?: "square" | "horizontal"; elements: MetaCard[] } } }
+  | { attachment: { type: "template"; payload: { template_type: "button"; text: string; buttons: MetaButton[] } } };
 type MetaCard = { title: string; subtitle?: string; image_url?: string; buttons?: MetaButton[] };
 
 type LineAction = { type: string; label?: string; text?: string; data?: string; uri?: string; displayText?: string };
@@ -186,6 +187,12 @@ export function toMetaMessages(messages: OutMessage[]): MetaMessage[] {
       } else {
         // การ์ดข้อความล้วน (ชวนเพิ่มป้ายภาษี / ยืนยันชำระเงิน) → ข้อความ + ปุ่มด่วน · ลิงก์ → ต่อท้ายข้อความ
         const p = parts[0];
+        // ปุ่มเปิดลิงก์อย่างเดียว (เช่น "กรอกชื่อ-ที่อยู่จัดส่ง") → ข้อความ + ปุ่มลิงก์ของ Messenger
+        const urlButtons = p.actions.filter((a) => a.type === "uri").map(toButton).filter((b): b is MetaButton => b?.type === "web_url");
+        if (urlButtons.length && urlButtons.length === p.actions.length) {
+          out.push({ attachment: { type: "template", payload: { template_type: "button", text: cut(forMeta(p.texts.join("\n") || msg.altText || "เปิดลิงก์"), 640), buttons: urlButtons.slice(0, 3) } } });
+          continue;
+        }
         const links = p.actions.filter((a) => a.type === "uri" && a.uri).map((a) => `🔗 ${a.label ?? "เปิดลิงก์"}: ${a.uri}`);
         const replies = p.actions.map(toQuickReply).filter((q): q is MetaQuickReply => q !== null);
         out.push(...textWithQuickReplies([...p.texts, ...links].join("\n") || msg.altText || "", [...replies, ...quick]));

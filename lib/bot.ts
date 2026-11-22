@@ -4,14 +4,15 @@ import { getFaq } from "./sheet.ts";
 import { askGemini, type BotAnswer } from "./gemini.ts";
 import { getHistory, addTurn } from "./history.ts";
 import {
-  getImageSets, findSet, buildCarousel, buildQuickReply, parseChoice, nextStepSet, firstStepSet, stepOf, stepTitle, isQuickSet,
+  baseUrl, getImageSets, findSet, buildCarousel, buildQuickReply, parseChoice, nextStepSet, firstStepSet, stepOf, stepTitle, isQuickSet,
   CATEGORY_SET, INSTALL_SET, REVIEW_SET, type FlexOut, type ImageSet,
 } from "./images.ts";
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer, REVIEW_PROMO, REVIEW_REMINDER } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage, paidConfirmMessage,
-  decodePostback, parseAddressSent, productLabel, isTaxOnly, type PricedOrder,
+  decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, type PricedOrder,
 } from "./order.ts";
+import { accountNumber, promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
 import { slipImageMessage } from "./slip.ts";
 import { fetchCustomerImage, readPhoto, type PhotoRead } from "./vision.ts";
 import { defaultState, type StateStore } from "./state.ts";
@@ -124,6 +125,7 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     if (!muted) await send(deps, replyToken, userId, [IMAGE_REPLY, adminNotice()]);
     await state.set(muteKey(userId), "1", MUTE_SECONDS);
     // รูป → ส่งรูปนั้นเข้าแชทแอดมินด้วย (ดูสลิปแล้วกด ✅ ได้เลย) · ไฟล์ / วิดีโอ → แจ้งให้ไปดูใน OA Manager
+    const open = image && isCustomer ? await openOrder(state, userId) : null;
     await notifyAdmin(
       deps,
       userId,
@@ -132,7 +134,8 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
         : read?.kind === "damage" ? `ลูกค้าส่งรูปของเสียหาย/ส่งผิด${aiSaw(read)} — รูปอยู่ด้านล่าง 👇`
         : read ? `ลูกค้าส่งรูป${aiSaw(read)} — รูปอยู่ด้านล่าง 👇`
         : "ลูกค้าส่งรูป (อาจเป็นสลิปหรือรูปของเสียหาย) — รูปอยู่ด้านล่าง 👇",
-      image ? [image] : [],
+      // มีออเดอร์ค้าง (ไม่ใช่รูปของเสียหาย) → แนบปุ่ม ✅ ได้รับเงินแล้ว / ❌ ยอดไม่ตรง ใต้รูปสลิป
+      image ? [image, ...(open && read?.kind !== "damage" ? [slipConfirmMessage(open.code, open.total, userId)] : [])] : [],
     );
     return;
   }
@@ -348,6 +351,13 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
     if (!deps.adminUserId || userId !== deps.adminUserId) return;
     const log = deps.logOrder ?? logOrder;
     if (pb.a === "ok") {
+      // ปุ่มยืนยันมีทั้งใต้การ์ดออเดอร์และใต้รูปสลิป → กดซ้ำไม่ส่งหาลูกค้าซ้ำ
+      const st = deps.state ?? defaultState;
+      if ((await st.get(paidKey(pb.c))) !== null) {
+        await deps.line.reply(replyToken, [`ออเดอร์ ${pb.c} ยืนยันรับเงินไปแล้วครับ (ไม่ได้ส่งหาลูกค้าซ้ำ)`]);
+        return;
+      }
+      await st.set(paidKey(pb.c), "1", OPEN_ORDER_SECONDS * 10);
       await deps.line.push(pb.u, [paidConfirmMessage(pb.c, pb.t)]);
       const logged = await log(statusEvent(pb.c, ORDER_STATUS.paid));
       // ใบปะหน้า: ที่อยู่ที่ลูกค้ากรอกไว้ → ลิงก์หน้าพิมพ์ ส่งต่อให้พนักงานได้เลย
@@ -380,11 +390,23 @@ async function startOrder(deps: BotDeps, replyToken: string, userId: string, set
 }
 
 // สรุปยอด + เลขบัญชี + ปุ่มกรอกที่อยู่
+// ลูกค้า LINE → แบบฟอร์มใน LINE (LIFF) · ลูกค้า Facebook/Instagram → หน้าเว็บ /order (ลิงก์มีลายเซ็นผูกกับลูกค้าคนนี้)
+// จ่ายเงิน: QR พร้อมเพย์ใส่ยอด (ถ้าตั้ง PROMPTPAY_ID) + เลขบัญชีแยกข้อความ (กดค้างคัดลอก)
 async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: string, order: PricedOrder, turnText: string) {
-  const hasForm = Boolean(deps.liffId && deps.orderSecret);
-  const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", hasForm)];
-  if (hasForm) out.push(addressButtonMessage(deps.liffId!, signOrder({ code: order.code, product: order.product, picks: order.picks, tax: order.tax, total: order.total }, deps.orderSecret!)));
+  const meta = isMetaUser(userId);
+  const token = deps.orderSecret
+    ? signOrder({ code: order.code, product: order.product, picks: order.picks, tax: order.tax, total: order.total, ...(meta ? { u: userId } : {}) }, deps.orderSecret)
+    : "";
+  const formUrl = !token ? "" : meta ? `${baseUrl()}/order?o=${encodeURIComponent(token)}` : deps.liffId ? `https://liff.line.me/${deps.liffId}?o=${encodeURIComponent(token)}` : "";
+  const qr = Boolean(token) && promptPayEnabled();
+  const account = accountNumber(deps.paymentInfo ?? "");
+  const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, copyAccount: Boolean(account) })];
+  if (qr) out.push(promptPayImageMessage(token));
+  if (account) out.push(account);
+  if (formUrl) out.push(addressButtonMessage(formUrl));
   await send(deps, replyToken, userId, out);
+  // จำออเดอร์ล่าสุด → ลูกค้าส่งสลิปมา แอดมินได้ปุ่ม ✅/❌ ใต้รูปสลิปเลย
+  await (deps.state ?? defaultState).set(openOrderKey(userId), JSON.stringify({ code: order.code, total: order.total }), OPEN_ORDER_SECONDS).catch(() => {});
   addTurn(userId, turnText, `ส่งสรุปออเดอร์ ${order.code} ยอด ${order.total}.- แล้ว รอลูกค้ากรอกที่อยู่และโอน`);
   if (!deps.paymentInfo?.trim()) await notifyAdmin(deps, userId, `ออเดอร์ ${order.code} ยอด ${order.total}.- — ยังไม่ได้ตั้ง PAYMENT_INFO ต้องส่งเลขบัญชีให้ลูกค้าเอง`);
 }
@@ -436,6 +458,22 @@ export const MUTE_SECONDS = 10 * 60;
 const GREET_SECONDS = 30 * 24 * 60 * 60;
 const muteKey = (userId: string) => `mute:${userId}`;
 const greetKey = (userId: string) => `greet:${userId}`;
+
+// ออเดอร์ล่าสุดที่ส่งสรุปยอดไป (รอสลิป) · ออเดอร์ที่แอดมินยืนยันรับเงินแล้ว
+const OPEN_ORDER_SECONDS = 3 * 24 * 60 * 60;
+const openOrderKey = (userId: string) => `order:${userId}`;
+const paidKey = (code: string) => `paid:${code}`;
+async function openOrder(state: StateStore, userId: string): Promise<{ code: string; total: number } | null> {
+  const v = await state.get(openOrderKey(userId)).catch(() => null);
+  if (!v) return null;
+  try {
+    const o = JSON.parse(v);
+    if (typeof o.code !== "string" || typeof o.total !== "number") return null;
+    return (await state.get(paidKey(o.code)).catch(() => null)) === null ? o : null; // จ่ายแล้ว = ไม่ค้าง
+  } catch {
+    return null;
+  }
+}
 
 // รูปสินค้า + "มีแบบนี้ไหม": ฝั่งรูปบันทึกสถานะ pending → ask (ตอบเป็นคำถามสินค้า) / slip (ตอบแบบสลิป) · ฝั่งข้อความบันทึกว่าถามอยู่
 export const PHOTO_ASK = /แบบนี้|อันนี้|ตัวนี้|ลายนี้|สีนี้|ทรงนี้|ตามรูป|ในรูป|ตามภาพ|ในภาพ|แบบรูป|เหมือนรูป|เหมือนในรูป/;

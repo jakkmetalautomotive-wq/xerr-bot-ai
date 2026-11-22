@@ -3,6 +3,7 @@
 import { getImageSets } from "@/lib/images.ts";
 import { verifyOrder, priceOrder, validateAddress, adminOrderMessage, orderLines } from "@/lib/order.ts";
 import { line } from "@/lib/line.ts";
+import { metaPort, routedPort } from "@/lib/meta.ts";
 import { logOrder, newOrderEvent } from "@/lib/orderlog.ts";
 import { labelFromOrder, saveLabel } from "@/lib/label.ts";
 import { defaultState } from "@/lib/state.ts";
@@ -38,7 +39,11 @@ export async function POST(req: Request) {
   const draft = verifyOrder(String(body.token ?? ""), process.env.LINE_CHANNEL_SECRET ?? "");
   if (!draft) return bad("ลิงก์ออเดอร์ไม่ถูกต้องหรือหมดอายุ กรุณากดปุ่มจากแชทอีกครั้งครับ");
 
-  const user = await lineUserFromIdToken(String(body.idToken ?? ""));
+  // ลูกค้า Facebook/Instagram: ไม่มี LINE Login → ลิงก์มีลายเซ็นผูกกับลูกค้าคนนี้แล้ว (บอทส่งให้ในแชทของเขาเท่านั้น)
+  const chat = routedPort(line, metaPort());
+  const user = draft.u
+    ? { sub: draft.u, name: await chat.displayName(draft.u).catch(() => "") }
+    : await lineUserFromIdToken(String(body.idToken ?? ""));
   if (!user) return bad("ยืนยันตัวตน LINE ไม่ได้ กรุณาเปิดแบบฟอร์มจากในแอป LINE ครับ", 401);
 
   const addr = validateAddress(body as Record<string, string>);
@@ -59,7 +64,7 @@ export async function POST(req: Request) {
 
   // ถ้าแบบฟอร์มส่งข้อความในแชทแทนลูกค้าไม่ได้ (เปิดนอกแชท) → บอทยืนยันให้เอง
   if (!body.chatMessageSent) {
-    await line.push(user.sub, [`รับที่อยู่จัดส่งแล้วครับ ✅ ออเดอร์ ${order.code}\nโอนยอด ${order.total.toLocaleString("en-US")}.- แล้วส่งสลิปในแชทนี้ได้เลยครับ 🙏`]).catch(() => {});
+    await chat.push(user.sub, [`รับที่อยู่จัดส่งแล้วครับ ✅ ออเดอร์ ${order.code}\nโอนยอด ${order.total.toLocaleString("en-US")}.- แล้วส่งสลิปในแชทนี้ได้เลยครับ 🙏`]).catch(() => {});
   }
 
   // ลงชีทออเดอร์ (สถานะ รอตรวจสลิป) — ชีทล่มก็ไม่กระทบลูกค้า

@@ -4,7 +4,9 @@ import crypto from "node:crypto";
 import { stepOf, CATEGORY_SET, CARD_THEME, baseUrl, type ImageSet } from "./images.ts";
 import { SHIPPING, TAX_CAR, REVIEW_REMINDER } from "./shop.ts";
 
-export type OrderDraft = { code: string; product: string; picks: string[]; tax: boolean };
+// u = ลูกค้า Facebook/Instagram (fb:/ig:) — แบบฟอร์มเว็บไม่มี LINE Login → ลายเซ็นออเดอร์ยืนยันว่าเป็นลูกค้าคนนี้
+export type OrderDraft = { code: string; product: string; picks: string[]; tax: boolean; u?: string };
+export const isMetaUser = (id = "") => /^(fb|ig):\d+$/.test(id);
 export type PricedOrder = OrderDraft & {
   productLabel: string;
   base: number;
@@ -72,7 +74,7 @@ export function verifyOrder(token: string, secret: string): (OrderDraft & { tota
   try {
     const d = JSON.parse(unb64(data));
     if (typeof d.code !== "string" || typeof d.product !== "string" || !Array.isArray(d.picks)) return null;
-    return { code: d.code, product: d.product, picks: d.picks.map(String), tax: Boolean(d.tax), total: typeof d.total === "number" ? d.total : undefined };
+    return { code: d.code, product: d.product, picks: d.picks.map(String), tax: Boolean(d.tax), total: typeof d.total === "number" ? d.total : undefined, ...(isMetaUser(d.u) ? { u: String(d.u) } : {}) };
   } catch {
     return null;
   }
@@ -89,9 +91,14 @@ export function orderLines(o: PricedOrder): string {
 }
 
 // เทมเพลตสรุปออเดอร์ของจักร (ปรับคำเป็นผู้ชาย) · เลขบัญชีมาจาก PAYMENT_INFO ใน Vercel
-export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: boolean): string {
-  const pay = paymentInfo.trim()
-    ? `เมื่อ Confirm สินค้าแล้ว สามารถโอนชำระได้เลยนะครับ\n\n${paymentInfo.trim()}\n‼️กรุณาส่งสลิปโอนเงินมาในแชตด้วยนะครับ ‼️`
+export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: boolean, { qr = false, copyAccount = false } = {}): string {
+  const howTo = [
+    ...(qr ? ["📱 สแกน QR พร้อมเพย์ด้านล่างได้เลย (ใส่ยอดให้แล้ว)"] : []),
+    ...(copyAccount ? ["📋 เลขบัญชีส่งแยกไว้ด้านล่าง กดค้างเพื่อคัดลอกได้เลยครับ"] : []),
+  ];
+  const info = paymentInfo.trim();
+  const pay = info || qr
+    ? ["เมื่อ Confirm สินค้าแล้ว สามารถโอนชำระได้เลยนะครับ", "", ...(info ? [info] : []), ...howTo, "‼️กรุณาส่งสลิปโอนเงินมาในแชตด้วยนะครับ ‼️"].join("\n")
     : "เดี๋ยวแอดมินส่งเลขบัญชีให้นะครับ";
   const address = hasForm
     ? "🚚 กดปุ่ม \"กรอกชื่อ-ที่อยู่จัดส่ง\" ด้านล่างได้เลยครับ"
@@ -239,7 +246,8 @@ export function taxUpsellMessage(product: string, picks: string[]) {
 }
 
 // การ์ดปุ่ม "กรอกชื่อ-ที่อยู่จัดส่ง" → เปิดแบบฟอร์มในแอป LINE
-export function addressButtonMessage(liffId: string, token: string) {
+// url = ลิงก์ LIFF (ลูกค้า LINE) หรือหน้าเว็บ /order (ลูกค้า Facebook/Instagram)
+export function addressButtonMessage(url: string) {
   return {
     type: "flex" as const,
     altText: "กรอกชื่อ-ที่อยู่จัดส่ง",
@@ -257,7 +265,7 @@ export function addressButtonMessage(liffId: string, token: string) {
             type: "button",
             style: "primary",
             color: "#06C755",
-            action: { type: "uri", label: "กรอกชื่อ-ที่อยู่จัดส่ง", uri: `https://liff.line.me/${liffId}?o=${encodeURIComponent(token)}` },
+            action: { type: "uri", label: "กรอกชื่อ-ที่อยู่จัดส่ง", uri: url },
           },
         ],
       },
@@ -291,20 +299,30 @@ export function adminOrderMessage(o: PricedOrder, a: Address, customerName: stri
     `👤 ${a.name}  📞 ${a.phone}`,
     `📦 ${a.address} ${a.zip}`,
     ...(a.note ? [`📝 ${a.note}`] : []),
-    `LINE: ${customerName || "-"}`,
+    `${userId.startsWith("fb:") ? "Facebook" : userId.startsWith("ig:") ? "Instagram" : "LINE"}: ${customerName || "-"}`,
     "",
     "ลูกค้าจะส่งสลิปในแชท · เช็คยอดในแอปธนาคารแล้วกดปุ่มด้านล่าง",
   ].join("\n");
+  return confirmCard(text, `ออเดอร์ ${o.code} ยอด ${baht(o.total)}.- รอเช็คยอดโอน`, o.code, o.total, userId);
+}
+
+// ลูกค้าที่มีออเดอร์ค้างส่งสลิปมา → การ์ดถึงแอดมินพร้อมปุ่มเดียวกัน (กดยืนยันจากใต้รูปสลิปได้เลย)
+export function slipConfirmMessage(code: string, total: number, userId: string) {
+  const text = `🧾 สลิปของออเดอร์ ${code} (รูปอยู่ด้านบน)\n💰 ยอดที่ต้องโอน ${baht(total)}.-\nเช็คยอดในแอปธนาคารแล้วกดปุ่มด้านล่าง`;
+  return confirmCard(text, `สลิปออเดอร์ ${code} ยอด ${baht(total)}.-`, code, total, userId);
+}
+
+function confirmCard(text: string, altText: string, code: string, total: number, userId: string) {
   const btn = (label: string, a2: "ok" | "bad", color: string) => ({
     type: "button",
     style: "primary",
     color,
     height: "sm",
-    action: { type: "postback", label, data: encodePostback({ k: "adm", a: a2, c: o.code, u: userId, t: o.total }), displayText: `${label} (${o.code})` },
+    action: { type: "postback", label, data: encodePostback({ k: "adm", a: a2, c: code, u: userId, t: total }), displayText: `${label} (${code})` },
   });
   return {
     type: "flex" as const,
-    altText: `ออเดอร์ ${o.code} ยอด ${baht(o.total)}.- รอเช็คยอดโอน`,
+    altText,
     contents: {
       type: "bubble",
       body: { type: "box", layout: "vertical", contents: [{ type: "text", text, wrap: true, size: "sm" }] },
