@@ -94,7 +94,7 @@ export function orderLines(o: PricedOrder): string {
 export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: boolean, { qr = false, copyAccount = false } = {}): string {
   const howTo = [
     ...(qr ? ["📱 สแกน QR พร้อมเพย์ด้านล่างได้เลย (ใส่ยอดให้แล้ว)"] : []),
-    ...(copyAccount ? ["📋 เลขบัญชีส่งแยกไว้ด้านล่าง กดค้างเพื่อคัดลอกได้เลยครับ"] : []),
+    ...(copyAccount ? ["📋 เลขบัญชีส่งแยกไว้ด้านล่าง กดปุ่มโอนในแชท หรือกดค้างเพื่อคัดลอกได้เลยครับ"] : []),
   ];
   const info = paymentInfo.trim();
   const pay = info || qr

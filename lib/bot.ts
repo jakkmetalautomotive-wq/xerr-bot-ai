@@ -12,7 +12,7 @@ import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage, paidConfirmMessage,
   decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, type PricedOrder,
 } from "./order.ts";
-import { accountNumber, promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
+import { accountNumbers, promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
 import { slipImageMessage } from "./slip.ts";
 import { fetchCustomerImage, readPhoto, type PhotoRead } from "./vision.ts";
 import { defaultState, type StateStore } from "./state.ts";
@@ -391,7 +391,7 @@ async function startOrder(deps: BotDeps, replyToken: string, userId: string, set
 
 // สรุปยอด + เลขบัญชี + ปุ่มกรอกที่อยู่
 // ลูกค้า LINE → แบบฟอร์มใน LINE (LIFF) · ลูกค้า Facebook/Instagram → หน้าเว็บ /order (ลิงก์มีลายเซ็นผูกกับลูกค้าคนนี้)
-// จ่ายเงิน: QR พร้อมเพย์ใส่ยอด (ถ้าตั้ง PROMPTPAY_ID) + เลขบัญชีแยกข้อความ (กดค้างคัดลอก)
+// จ่ายเงิน: เลขบัญชีแยกบัญชีละข้อความ (Messenger ทำเป็นการ์ดมีปุ่มโอน · LINE กดค้างคัดลอก) · QR พร้อมเพย์เฉพาะถ้าตั้ง PROMPTPAY_ID (ร้านไม่ใช้)
 async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: string, order: PricedOrder, turnText: string) {
   const meta = isMetaUser(userId);
   const token = deps.orderSecret
@@ -399,10 +399,10 @@ async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: strin
     : "";
   const formUrl = !token ? "" : meta ? `${baseUrl()}/order?o=${encodeURIComponent(token)}` : deps.liffId ? `https://liff.line.me/${deps.liffId}?o=${encodeURIComponent(token)}` : "";
   const qr = Boolean(token) && promptPayEnabled();
-  const account = accountNumber(deps.paymentInfo ?? "");
-  const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, copyAccount: Boolean(account) })];
+  const accounts = accountNumbers(deps.paymentInfo ?? "");
+  const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, copyAccount: accounts.length > 0 })];
   if (qr) out.push(promptPayImageMessage(token));
-  if (account) out.push(account);
+  out.push(...accounts);
   if (formUrl) out.push(addressButtonMessage(formUrl));
   await send(deps, replyToken, userId, out);
   // จำออเดอร์ล่าสุด → ลูกค้าส่งสลิปมา แอดมินได้ปุ่ม ✅/❌ ใต้รูปสลิปเลย

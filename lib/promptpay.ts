@@ -46,7 +46,9 @@ export function promptPayImageMessage(orderToken: string) {
   return { type: "image", originalContentUrl: url, previewImageUrl: url };
 }
 
-// เลขบัญชีใน PAYMENT_INFO (ตัวเลขยาว ๆ อันแรก เช่น 123-4-56789-0) → ส่งแยกเป็นข้อความเดียว ลูกค้ากดค้างคัดลอกได้ทันที
-export function accountNumber(paymentInfo: string): string | null {
-  return paymentInfo.match(/\d[\d -]{7,}\d/)?.[0].trim() ?? null;
+// เลขบัญชีทุกบัญชีใน PAYMENT_INFO (เช่น 054-0-20552-4) → ส่งแยกบัญชีละ 1 ข้อความ (เลขอย่างเดียว)
+// Messenger แปลงข้อความเลขบัญชีเป็นการ์ดธนาคารพร้อมปุ่ม "โอนด้วย K PLUS / Krungthai / SCB Easy" ให้เอง · LINE กดค้างคัดลอกได้
+export function accountNumbers(paymentInfo: string): string[] {
+  const found = (paymentInfo.match(/\d[\d -]{7,}\d/g) ?? []).map((n) => n.trim());
+  return [...new Set(found)].slice(0, 3);
 }

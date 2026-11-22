@@ -5,7 +5,7 @@ import { _resetLocalState } from "../lib/state.ts";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets } from "../lib/images.ts";
 import { verifyOrder, decodePostback, signOrder } from "../lib/order.ts";
-import { crc16, promptPayPayload, accountNumber } from "../lib/promptpay.ts";
+import { crc16, promptPayPayload, accountNumbers } from "../lib/promptpay.ts";
 import { toMetaMessages } from "../lib/meta.ts";
 
 beforeEach(() => _resetLocalState());
@@ -22,7 +22,7 @@ function fakeLine() {
   return { line, sent };
 }
 const SECRET = "secret";
-const PAY = "กสิกรไทย 123-4-56789-0\nชื่อบัญชี ร้านทดสอบ";
+const PAY = "ธนาคารกรุงไทย 123-4-56789-0\nธนาคารทหารไทยธนชาต (ttb) 987-6-54321-0\nชื่อบัญชี ร้านทดสอบ";
 const ev = (message: any, userId: string) => ({ type: "message", source: { type: "user", userId }, replyToken: userId, message }) as any;
 const pbEvent = (data: string, userId: string) => ({ type: "postback", source: { type: "user", userId }, replyToken: "rt-admin", postback: { data } }) as any;
 const deps = (line: LinePort) => ({ line, adminUserId: "UADMIN", orderSecret: SECRET, paymentInfo: PAY, liffId: "LIFF1", photoWaitMs: 10, getFaq: async () => "faq", getImageSets: async () => sampleSets(), readPhoto: async () => null });
@@ -37,8 +37,8 @@ test("พร้อมเพย์: CRC ตามมาตรฐาน · เบ�
   assert.ok(promptPayPayload("1234567890123", 419)!.includes("02131234567890123"));
   assert.equal(promptPayPayload("12345", 100), null);
   assert.equal(promptPayPayload("0812345678", 0), null);
-  assert.equal(accountNumber(PAY), "123-4-56789-0");
-  assert.equal(accountNumber("ไม่มีเลข"), null);
+  assert.deepEqual(accountNumbers(PAY), ["123-4-56789-0", "987-6-54321-0"]);
+  assert.deepEqual(accountNumbers("ไม่มีเลข"), []);
 });
 
 test("ลูกค้า Facebook สั่งซื้อ → สรุปยอด + QR พร้อมเพย์ + เลขบัญชีแยก + ปุ่มกรอกที่อยู่ (หน้าเว็บ ผูกกับลูกค้าคนนี้)", async () => {
@@ -52,7 +52,8 @@ test("ลูกค้า Facebook สั่งซื้อ → สรุปย�
   assert.equal(msgs[1].type, "image");
   assert.match(msgs[1].originalContentUrl, /\/api\/qr\?o=/);
   assert.equal(msgs[2], "123-4-56789-0");
-  const uri = JSON.stringify(msgs[3]).match(/"uri":"([^"]+)"/)![1];
+  assert.equal(msgs[3], "987-6-54321-0");
+  const uri = JSON.stringify(msgs[4]).match(/"uri":"([^"]+)"/)![1];
   assert.match(uri, /\/order\?o=/);
   assert.ok(!uri.includes("liff.line.me"));
   const order = verifyOrder(decodeURIComponent(uri.split("o=")[1]), SECRET)!;
@@ -60,7 +61,7 @@ test("ลูกค้า Facebook สั่งซื้อ → สรุปย�
   assert.equal(order.total, 69 + 15);
 
   // ใน Messenger: ปุ่มกรอกที่อยู่เป็นปุ่มลิงก์จริง ไม่ใช่ข้อความลิงก์ยาว ๆ
-  const meta = toMetaMessages([msgs[3]]) as any[];
+  const meta = toMetaMessages([msgs[4]]) as any[];
   assert.equal(meta[0].attachment.payload.template_type, "button");
   assert.equal(meta[0].attachment.payload.buttons[0].type, "web_url");
 });
@@ -101,4 +102,14 @@ test("ส่งสลิปหลังสรุปยอด → แอดมิ
 test("ลิงก์ออเดอร์: u ต้องเป็นลูกค้า fb:/ig: เท่านั้น", () => {
   const t = signOrder({ code: "XR-1", product: "x", picks: [], tax: false, u: "U-line" }, SECRET);
   assert.equal(verifyOrder(t, SECRET)!.u, undefined);
+});
+
+test("ไม่ใช้พร้อมเพย์ (ไม่ตั้ง PROMPTPAY_ID) → ลูกค้า Facebook ได้สรุปยอด + เลขบัญชี 2 ข้อความ + ปุ่มที่อยู่ (ไม่มี QR)", async () => {
+  const { line, sent } = fakeLine();
+  await handleEvent(ev({ type: "text", id: "t", text: taxOnly }, "fb:222"), deps(line));
+  const msgs = sent.find((s) => s.to === "fb:222")!.texts;
+  assert.ok(!msgs.some((m: any) => m?.type === "image"));
+  assert.ok(!/QR/.test(msgs[0]));
+  assert.deepEqual(msgs.slice(1, 3), ["123-4-56789-0", "987-6-54321-0"]);
+  assert.match(JSON.stringify(msgs[3]), /\/order\?o=/);
 });
