@@ -34,6 +34,10 @@ export async function GET(req: Request) {
   out.state = await stateHealth();
   // Facebook/Instagram: บอกแค่ว่าตั้งค่าครบไหม (ไม่แสดงค่าจริง)
   out.meta = { pageToken: Boolean(process.env.META_PAGE_ACCESS_TOKEN), appSecret: Boolean(process.env.META_APP_SECRET), verifyToken: Boolean(process.env.META_VERIFY_TOKEN) };
+  for (const k of ["last", "sent", "error", "crash", "badsig"]) {
+    const v = await defaultState.get(`meta:${k}`).catch(() => null);
+    if (v) (out.meta as Record<string, unknown>)[k] = JSON.parse(v);
+  }
 
   const params = new URL(req.url).searchParams;
   // ?reviews=1 → จำนวนรูปรีวิวที่บอทอ่านจาก Drive ได้ (ไม่แสดงรายชื่อไฟล์)
