@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   }
 
   const events = toLineEvents(parsed);
-  await note("meta:last", { at: new Date().toISOString(), object: parsed.object ?? "", events: events.length });
+  await note("meta:last", { at: new Date().toISOString(), object: parsed.object ?? "", events: events.length, pages: (parsed.entry ?? []).map((e) => e.id) });
 
   const deps = {
     line: routedPort(line, recordErrors(metaPort())), // ลูกค้า → Meta · แจ้งแอดมิน → LINE ของแอดมิน

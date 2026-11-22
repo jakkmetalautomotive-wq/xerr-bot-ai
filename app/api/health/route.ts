@@ -34,6 +34,17 @@ export async function GET(req: Request) {
   out.state = await stateHealth();
   // Facebook/Instagram: บอกแค่ว่าตั้งค่าครบไหม (ไม่แสดงค่าจริง)
   out.meta = { pageToken: Boolean(process.env.META_PAGE_ACCESS_TOKEN), appSecret: Boolean(process.env.META_APP_SECRET), verifyToken: Boolean(process.env.META_VERIFY_TOKEN) };
+  // Token นี้เป็นของเพจไหน (ชื่อ + รหัสเพจ ไม่ใช่ข้อมูลลับ) → เทียบกับ meta.last.pages ที่ข้อความเข้ามา
+  const pageToken = (process.env.META_PAGE_ACCESS_TOKEN ?? "").trim();
+  if (pageToken) {
+    try {
+      const r = await fetch(`https://graph.facebook.com/v21.0/me?fields=id,name&access_token=${encodeURIComponent(pageToken)}`, { signal: AbortSignal.timeout(8000) });
+      const j = (await r.json()) as { id?: string; name?: string; error?: { message?: string } };
+      (out.meta as Record<string, unknown>).tokenPage = j.id ? { id: j.id, name: j.name } : { error: j.error?.message ?? `HTTP ${r.status}` };
+    } catch (e) {
+      (out.meta as Record<string, unknown>).tokenPage = { error: errMsg(e) };
+    }
+  }
   for (const k of ["last", "sent", "error", "crash", "badsig"]) {
     const v = await defaultState.get(`meta:${k}`).catch(() => null);
     if (v) (out.meta as Record<string, unknown>)[k] = JSON.parse(v);
