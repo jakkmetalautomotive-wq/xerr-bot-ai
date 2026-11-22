@@ -37,7 +37,7 @@ export async function GET(req: Request) {
   // Token นี้เป็นของเพจไหน (รหัสเพจ ไม่ใช่ข้อมูลลับ) + เพจนั้นผูกกับแอปไหนบ้าง → เทียบกับ meta.last.pages ที่ข้อความเข้ามา
   const pageToken = (process.env.META_PAGE_ACCESS_TOKEN ?? "").trim();
   if (pageToken) {
-    const graph = async (path: string) => {
+    const graph = async (path: string): Promise<Record<string, unknown>> => {
       try {
         const r = await fetch(`https://graph.facebook.com/v21.0/${path}${path.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(pageToken)}`, { signal: AbortSignal.timeout(8000) });
         const j = (await r.json()) as Record<string, unknown> & { error?: { message?: string } };
