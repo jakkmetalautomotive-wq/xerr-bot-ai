@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { _resetLocalState } from "../lib/state.ts";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets } from "../lib/images.ts";
-import { verifyOrder, decodePostback, signOrder, paymentMessage } from "../lib/order.ts";
+import { verifyOrder, decodePostback, signOrder, paymentMessage, withoutTtb } from "../lib/order.ts";
 import { crc16, promptPayPayload, accountNumbers } from "../lib/promptpay.ts";
 import { toMetaMessages } from "../lib/meta.ts";
 
@@ -51,6 +51,7 @@ test("ลูกค้า Facebook สั่งซื้อ → สรุปย�
   const msgs = toUser(sent, "fb:111");
   assert.match(msgs[0], /สรุปรายการสั่งซื้อ/);
   assert.ok(msgs[0].includes("123-4-56789-0"));
+  assert.ok(!msgs[0].includes("987-6-54321-0") && !/ttb/i.test(msgs[0])); // Messenger ไม่แสดง ttb
   assert.match(msgs[0], /กรุณาส่งสลิป/);
   assert.ok(!/กดค้างเพื่อคัดลอก/.test(msgs[0]));
   assert.equal(msgs[1].type, "image"); // QR เฉพาะตอนตั้ง PROMPTPAY_ID
@@ -72,6 +73,7 @@ test("PAYMENT_INFO บรรทัดเดียว → ช่องทาง�
   );
   assert.equal(paymentMessage("กรุงไทย 1\nttb 2"), "💳 ช่องทางชำระเงิน\nกรุงไทย 1\nttb 2");
   assert.equal(paymentMessage(""), null);
+  assert.equal(withoutTtb("🏦 ชื่อบัญชี ร้านทดสอบ 🌐 KTB : 054-0-20552-4 🔵 TTB : 224-2-65761-3"), "🏦 ชื่อบัญชี ร้านทดสอบ\n🌐 KTB : 054-0-20552-4");
 });
 
 test("ลูกค้า LINE ยังใช้แบบฟอร์ม LIFF เหมือนเดิม · ไม่ตั้ง PROMPTPAY_ID = ไม่ส่ง QR", async () => {

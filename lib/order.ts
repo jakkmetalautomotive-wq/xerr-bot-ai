@@ -126,6 +126,10 @@ export function formatPaymentInfo(paymentInfo: string): string {
   const info = paymentInfo.trim();
   return info.includes("\n") ? info : info.replace(/\s*(\p{Extended_Pictographic})/gu, "\n$1").trim();
 }
+// Messenger แสดงเฉพาะกรุงไทย (การ์ดปุ่มโอนของ Meta ไม่รองรับ ttb) → ตัดบรรทัด ttb ออกจาก PAYMENT_INFO
+export function withoutTtb(paymentInfo: string): string {
+  return formatPaymentInfo(paymentInfo).split("\n").filter((l) => !/ttb|ทหารไทย|ธนชาต/i.test(l)).join("\n");
+}
 export function paymentMessage(paymentInfo: string): string | null {
   const info = formatPaymentInfo(paymentInfo);
   return info ? `💳 ช่องทางชำระเงิน\n${info}` : null;
