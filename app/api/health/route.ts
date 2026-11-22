@@ -34,16 +34,22 @@ export async function GET(req: Request) {
   out.state = await stateHealth();
   // Facebook/Instagram: บอกแค่ว่าตั้งค่าครบไหม (ไม่แสดงค่าจริง)
   out.meta = { pageToken: Boolean(process.env.META_PAGE_ACCESS_TOKEN), appSecret: Boolean(process.env.META_APP_SECRET), verifyToken: Boolean(process.env.META_VERIFY_TOKEN) };
-  // Token นี้เป็นของเพจไหน (ชื่อ + รหัสเพจ ไม่ใช่ข้อมูลลับ) → เทียบกับ meta.last.pages ที่ข้อความเข้ามา
+  // Token นี้เป็นของเพจไหน (รหัสเพจ ไม่ใช่ข้อมูลลับ) + เพจนั้นผูกกับแอปไหนบ้าง → เทียบกับ meta.last.pages ที่ข้อความเข้ามา
   const pageToken = (process.env.META_PAGE_ACCESS_TOKEN ?? "").trim();
   if (pageToken) {
-    try {
-      const r = await fetch(`https://graph.facebook.com/v21.0/me?fields=id,name&access_token=${encodeURIComponent(pageToken)}`, { signal: AbortSignal.timeout(8000) });
-      const j = (await r.json()) as { id?: string; name?: string; error?: { message?: string } };
-      (out.meta as Record<string, unknown>).tokenPage = j.id ? { id: j.id, name: j.name } : { error: j.error?.message ?? `HTTP ${r.status}` };
-    } catch (e) {
-      (out.meta as Record<string, unknown>).tokenPage = { error: errMsg(e) };
-    }
+    const graph = async (path: string) => {
+      try {
+        const r = await fetch(`https://graph.facebook.com/v21.0/${path}${path.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(pageToken)}`, { signal: AbortSignal.timeout(8000) });
+        const j = (await r.json()) as Record<string, unknown> & { error?: { message?: string } };
+        return j.error ? { error: String(j.error.message).slice(0, 160) } : j;
+      } catch (e) {
+        return { error: errMsg(e) };
+      }
+    };
+    const meta = out.meta as Record<string, unknown>;
+    meta.tokenPage = await graph("me?fields=id");
+    const subs = await graph("me/subscribed_apps");
+    meta.tokenPageApps = Array.isArray(subs.data) ? (subs.data as { name?: string; subscribed_fields?: string[] }[]).map((a) => ({ name: a.name, fields: a.subscribed_fields })) : subs;
   }
   for (const k of ["last", "sent", "error", "crash", "badsig"]) {
     const v = await defaultState.get(`meta:${k}`).catch(() => null);
