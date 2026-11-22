@@ -405,10 +405,12 @@ async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: strin
     // Messenger: สรุปยอด (มีช่องทางชำระเงินในตัว · Messenger ทำการ์ดธนาคารพร้อมปุ่มโอน) → รอให้การ์ดขึ้นก่อน → ปุ่มกรอกที่อยู่
     const info = withoutTtb(deps.paymentInfo ?? "");
     const copy = copyAccountMessage(info);
-    await send(deps, replyToken, userId, [orderSummaryText(order, info, Boolean(formUrl), { qr }), ...(qr ? [promptPayImageMessage(token)] : []), ...(copy ? [copy] : [])]);
-    if (formUrl) {
+    // ลำดับ: สรุปยอด → (การ์ดกรุงไทยพร้อมปุ่มโอน ที่ Messenger สร้างเอง) → ปุ่มคัดลอกเลขบัญชี → ปุ่มกรอกที่อยู่
+    await send(deps, replyToken, userId, [orderSummaryText(order, info, Boolean(formUrl), { qr }), ...(qr ? [promptPayImageMessage(token)] : [])]);
+    const after = [...(copy ? [copy] : []), ...(formUrl ? [addressButtonMessage(formUrl)] : [])];
+    if (after.length) {
       await new Promise((r) => setTimeout(r, deps.cardPauseMs ?? 3000));
-      await send(deps, replyToken, userId, [addressButtonMessage(formUrl)]);
+      await send(deps, replyToken, userId, after);
     }
   } else {
     // LINE: ข้อมูลโอนอยู่ในสรุป + เลขบัญชีแยกข้อความ (กดค้างคัดลอก)

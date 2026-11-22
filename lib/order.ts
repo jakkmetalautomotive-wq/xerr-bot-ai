@@ -157,7 +157,8 @@ export function copyAccountMessage(paymentInfo: string) {
         spacing: "md",
         contents: [
           { type: "text", text: `📋 เลขบัญชี${bank} ${number}`, wrap: true, weight: "bold" },
-          { type: "button", style: "primary", color: "#1BA5E1", action: { type: "uri", label: "📋 คัดลอกเลขบัญชี", uri: url } },
+          // webview: "compact" = Messenger เปิดเป็นแผ่นครึ่งจอ (ข้อความนี้ส่งเฉพาะลูกค้า Messenger)
+          { type: "button", style: "primary", color: "#1BA5E1", action: { type: "uri", label: "📋 คัดลอกเลขบัญชี", uri: url, webview: "compact" } },
         ],
       },
     },

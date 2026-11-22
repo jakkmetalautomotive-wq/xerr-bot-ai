@@ -79,7 +79,7 @@ export function toLineEvents(body: MetaWebhookBody): MetaEvent[] {
 }
 
 // ---------- คำตอบรูปแบบ LINE → ข้อความ Meta ----------
-type MetaButton = { type: "postback"; title: string; payload: string } | { type: "web_url"; title: string; url: string };
+type MetaButton = { type: "postback"; title: string; payload: string } | { type: "web_url"; title: string; url: string; webview_height_ratio?: "compact" | "tall" | "full" };
 type MetaQuickReply = { content_type: "text"; title: string; payload: string };
 export type MetaMessage =
   | { text: string; quick_replies?: MetaQuickReply[] }
@@ -88,7 +88,7 @@ export type MetaMessage =
   | { attachment: { type: "template"; payload: { template_type: "button"; text: string; buttons: MetaButton[] } } };
 type MetaCard = { title: string; subtitle?: string; image_url?: string; buttons?: MetaButton[] };
 
-type LineAction = { type: string; label?: string; text?: string; data?: string; uri?: string; displayText?: string };
+type LineAction = { type: string; label?: string; text?: string; data?: string; uri?: string; displayText?: string; webview?: "compact" | "tall" };
 type Node = { type?: string; text?: string; url?: string; contents?: unknown; action?: LineAction; hero?: Node; body?: Node; footer?: Node; header?: Node; [k: string]: unknown };
 
 // ร้านขายราคาเดียวกันทุกช่องทาง → คำว่า "ทาง LINE" ในข้อความลูกค้า เปลี่ยนเป็น "ทางแชท"
@@ -97,7 +97,7 @@ const cut = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1)}
 
 function toButton(a: LineAction): MetaButton | null {
   const title = cut(a.label || a.displayText || a.text || "เลือก", BUTTON_TITLE);
-  if (a.type === "uri" && a.uri?.startsWith("http")) return { type: "web_url", title, url: a.uri };
+  if (a.type === "uri" && a.uri?.startsWith("http")) return { type: "web_url", title, url: a.uri, ...(a.webview ? { webview_height_ratio: a.webview } : {}) };
   if (a.type === "message" && a.text) return { type: "postback", title, payload: TX + a.text };
   if (a.type === "postback" && a.data) return { type: "postback", title, payload: PB + a.data };
   return null;

@@ -63,7 +63,11 @@ test("ลูกค้า Facebook สั่งซื้อ → สรุปย�
   assert.equal(copyUri.searchParams.get("n"), "123-4-56789-0");
   assert.equal(copyUri.searchParams.get("b"), "ธนาคารกรุงไทย");
   assert.equal(copyUri.searchParams.get("o"), "ร้านทดสอบ");
-  assert.equal((toMetaMessages([msgs[2]]) as any[])[0].attachment.payload.buttons[0].type, "web_url");
+  const copyBtn = (toMetaMessages([msgs[2]]) as any[])[0].attachment.payload.buttons[0];
+  assert.equal(copyBtn.type, "web_url");
+  assert.equal(copyBtn.webview_height_ratio, "compact"); // แผ่นครึ่งจอ
+  // ปุ่มคัดลอกส่งรอบหลัง (หลังการ์ดกรุงไทย) พร้อมปุ่มที่อยู่
+  assert.deepEqual(sent.filter((x) => x.to === "fb:111").map((x) => x.texts.length), [2, 2]);
   const uri = JSON.stringify(msgs[3]).match(/"uri":"([^"]+)"/)![1];
   assert.match(uri, /\/order\?o=/);
   const order = verifyOrder(decodeURIComponent(uri.split("o=")[1]), SECRET)!;
