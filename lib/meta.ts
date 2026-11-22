@@ -199,7 +199,7 @@ export function toMetaMessages(messages: OutMessage[]): MetaMessage[] {
 
 // ---------- ส่งผ่าน Graph API ----------
 type Fetch = typeof fetch;
-export function metaPort(token = process.env.META_PAGE_ACCESS_TOKEN ?? "", fetchFn: Fetch = fetch): LinePort {
+export function metaPort(token = (process.env.META_PAGE_ACCESS_TOKEN ?? "").trim(), fetchFn: Fetch = fetch): LinePort {
   const call = async (path: string, body: unknown) => {
     if (!token) throw new Error("ยังไม่ได้ตั้ง META_PAGE_ACCESS_TOKEN");
     const res = await fetchFn(`${GRAPH}${path}?access_token=${encodeURIComponent(token)}`, {

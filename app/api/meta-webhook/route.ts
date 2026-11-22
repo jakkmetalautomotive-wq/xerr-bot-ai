@@ -22,7 +22,7 @@ export function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.text();
-  if (!verifyMetaSignature(body, req.headers.get("x-hub-signature-256"), process.env.META_APP_SECRET ?? "")) {
+  if (!verifyMetaSignature(body, req.headers.get("x-hub-signature-256"), (process.env.META_APP_SECRET ?? "").trim())) {
     // มีลายเซ็นมาแต่ไม่ตรง = META_APP_SECRET ใน Vercel ไม่ตรงกับแอป → บันทึกไว้ให้ /api/health บอก
     if (req.headers.get("x-hub-signature-256")) await note("meta:badsig", { at: new Date().toISOString() });
     return new Response("invalid signature", { status: 401 });
