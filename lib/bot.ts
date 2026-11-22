@@ -10,7 +10,7 @@ import {
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer, REVIEW_PROMO, REVIEW_REMINDER } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage, paidConfirmMessage,
-  decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, withoutTtb, type PricedOrder,
+  decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, withoutTtb, copyAccountMessage, type PricedOrder,
 } from "./order.ts";
 import { accountNumbers, promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
 import { slipImageMessage } from "./slip.ts";
@@ -403,7 +403,9 @@ async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: strin
   const qr = Boolean(token) && promptPayEnabled();
   if (meta) {
     // Messenger: สรุปยอด (มีช่องทางชำระเงินในตัว · Messenger ทำการ์ดธนาคารพร้อมปุ่มโอน) → รอให้การ์ดขึ้นก่อน → ปุ่มกรอกที่อยู่
-    await send(deps, replyToken, userId, [orderSummaryText(order, withoutTtb(deps.paymentInfo ?? ""), Boolean(formUrl), { qr }), ...(qr ? [promptPayImageMessage(token)] : [])]);
+    const info = withoutTtb(deps.paymentInfo ?? "");
+    const copy = copyAccountMessage(info);
+    await send(deps, replyToken, userId, [orderSummaryText(order, info, Boolean(formUrl), { qr }), ...(qr ? [promptPayImageMessage(token)] : []), ...(copy ? [copy] : [])]);
     if (formUrl) {
       await new Promise((r) => setTimeout(r, deps.cardPauseMs ?? 3000));
       await send(deps, replyToken, userId, [addressButtonMessage(formUrl)]);

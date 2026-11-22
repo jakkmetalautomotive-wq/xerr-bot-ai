@@ -122,9 +122,46 @@ export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: b
 
 // ข้อความช่องทางชำระเงินแยก (Messenger): PAYMENT_INFO บรรทัดเดียว → ขึ้นบรรทัดใหม่หน้า emoji แต่ละตัว
 // Messenger เห็นเลขบัญชีในข้อความ → ทำการ์ดธนาคารพร้อมปุ่มโอนให้เอง (เฉพาะธนาคารที่ Meta รองรับ)
+// ชื่อย่อธนาคาร → ชื่อเต็ม (ดูเป็นทางการ) · บรรทัดเดียว → ขึ้นบรรทัดใหม่หน้า emoji แต่ละตัว
+const BANK_NAMES: [RegExp, string][] = [
+  [/\bKTB\b/g, "ธนาคารกรุงไทย"],
+  [/\bTTB\b/g, "ธนาคารทหารไทยธนชาต (ttb)"],
+  [/\bKBANK\b/g, "ธนาคารกสิกรไทย"],
+  [/\bSCB\b/g, "ธนาคารไทยพาณิชย์"],
+  [/\bBBL\b/g, "ธนาคารกรุงเทพ"],
+];
 export function formatPaymentInfo(paymentInfo: string): string {
-  const info = paymentInfo.trim();
+  let info = paymentInfo.trim();
+  for (const [re, name] of BANK_NAMES) info = info.replace(re, name);
   return info.includes("\n") ? info : info.replace(/\s*(\p{Extended_Pictographic})/gu, "\n$1").trim();
+}
+
+// ปุ่มคัดลอกเลขบัญชี (Messenger ไม่มีปุ่มคัดลอกในตัว → เปิดหน้า /copy ที่มีปุ่มคัดลอก) · บัญชีแรกใน PAYMENT_INFO
+export function copyAccountMessage(paymentInfo: string) {
+  const info = formatPaymentInfo(paymentInfo);
+  const line = info.split("\n").find((l) => /\d[\d -]{7,}\d/.test(l));
+  const number = line?.match(/\d[\d -]{7,}\d/)?.[0].trim().replace(/\s+/g, "-");
+  if (!line || !number) return null;
+  const bank = line.match(/ธนาคาร\S+/)?.[0] ?? "";
+  const owner = info.match(/ชื่อบัญชี\s*:?\s*([^\n]+)/)?.[1].trim() ?? "";
+  const url = `${baseUrl()}/copy?${new URLSearchParams({ n: number, ...(bank ? { b: bank } : {}), ...(owner ? { o: owner } : {}) })}`;
+  return {
+    type: "flex" as const,
+    altText: `คัดลอกเลขบัญชี ${bank} ${number}`.trim(),
+    contents: {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: `📋 เลขบัญชี${bank} ${number}`, wrap: true, weight: "bold" },
+          { type: "button", style: "primary", color: "#1BA5E1", action: { type: "uri", label: "📋 คัดลอกเลขบัญชี", uri: url } },
+        ],
+      },
+    },
+  };
 }
 // Messenger แสดงเฉพาะกรุงไทย (การ์ดปุ่มโอนของ Meta ไม่รองรับ ttb) → ตัดบรรทัด ttb ออกจาก PAYMENT_INFO
 export function withoutTtb(paymentInfo: string): string {

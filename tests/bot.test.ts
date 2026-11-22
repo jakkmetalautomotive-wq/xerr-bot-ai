@@ -374,7 +374,7 @@ test("สรุปออเดอร์: ใช้เทมเพลตจัก
   assert.match(text, /กรอบป้ายอะคริลิค: สีดำ มีเส้นขอบ \/ สั้น-ยาว \/ มีเส้นคาดกลาง  419\.-/);
   assert.match(text, /ค่าส่ง SPX: ฟรี/);
   assert.match(text, /ยอดชำระ 488\.-/);
-  assert.match(text, /KTB/);
+  assert.match(text, /ธนาคารกรุงไทย/);
   assert.doesNotMatch(text, /ค่ะ|นะคะ/);
   assert.match(orderSummaryText(o, "", true), /แอดมินส่งเลขบัญชีให้/);
 });

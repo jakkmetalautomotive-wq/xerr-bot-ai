@@ -22,7 +22,7 @@ function fakeLine() {
   return { line, sent };
 }
 const SECRET = "secret";
-const PAY = "ธนาคารกรุงไทย 123-4-56789-0\nธนาคารทหารไทยธนชาต (ttb) 987-6-54321-0\nชื่อบัญชี ร้านทดสอบ";
+const PAY = "🏦 ชื่อบัญชี ร้านทดสอบ 🌐 KTB : 123-4-56789-0 🔵 TTB : 987-6-54321-0";
 const ev = (message: any, userId: string) => ({ type: "message", source: { type: "user", userId }, replyToken: userId, message }) as any;
 const pbEvent = (data: string, userId: string) => ({ type: "postback", source: { type: "user", userId }, replyToken: "rt-admin", postback: { data } }) as any;
 const deps = (line: LinePort) => ({ line, adminUserId: "UADMIN", orderSecret: SECRET, paymentInfo: PAY, liffId: "LIFF1", photoWaitMs: 10, getFaq: async () => "faq", getImageSets: async () => sampleSets(), readPhoto: async () => null, cardPauseMs: 0 });
@@ -54,14 +54,22 @@ test("ลูกค้า Facebook สั่งซื้อ → สรุปย�
   assert.ok(!msgs[0].includes("987-6-54321-0") && !/ttb/i.test(msgs[0])); // Messenger ไม่แสดง ttb
   assert.match(msgs[0], /กรุณาส่งสลิป/);
   assert.ok(!/กดค้างเพื่อคัดลอก/.test(msgs[0]));
+  assert.match(msgs[0], /🌐 ธนาคารกรุงไทย : 123-4-56789-0/); // ชื่อเต็ม ไม่ใช่ KTB
   assert.equal(msgs[1].type, "image"); // QR เฉพาะตอนตั้ง PROMPTPAY_ID
   assert.ok(!msgs.includes("123-4-56789-0")); // ไม่ส่งเลขเปล่า ๆ แยก
-  const uri = JSON.stringify(msgs[2]).match(/"uri":"([^"]+)"/)![1];
+  // ปุ่มคัดลอกเลขบัญชี → หน้า /copy (Messenger: ปุ่มลิงก์)
+  const copyUri = new URL(JSON.stringify(msgs[2]).match(/"uri":"([^"]+)"/)![1]);
+  assert.equal(copyUri.pathname, "/copy");
+  assert.equal(copyUri.searchParams.get("n"), "123-4-56789-0");
+  assert.equal(copyUri.searchParams.get("b"), "ธนาคารกรุงไทย");
+  assert.equal(copyUri.searchParams.get("o"), "ร้านทดสอบ");
+  assert.equal((toMetaMessages([msgs[2]]) as any[])[0].attachment.payload.buttons[0].type, "web_url");
+  const uri = JSON.stringify(msgs[3]).match(/"uri":"([^"]+)"/)![1];
   assert.match(uri, /\/order\?o=/);
   const order = verifyOrder(decodeURIComponent(uri.split("o=")[1]), SECRET)!;
   assert.equal(order.u, "fb:111");
   assert.equal(order.total, 69 + 15);
-  const meta = toMetaMessages([msgs[2]]) as any[];
+  const meta = toMetaMessages([msgs[3]]) as any[];
   assert.equal(meta[0].attachment.payload.template_type, "button");
   assert.equal(meta[0].attachment.payload.buttons[0].type, "web_url");
 });
@@ -69,11 +77,11 @@ test("ลูกค้า Facebook สั่งซื้อ → สรุปย�
 test("PAYMENT_INFO บรรทัดเดียว → ช่องทางชำระเงินขึ้นบรรทัดใหม่หน้า emoji แต่ละตัว", () => {
   assert.equal(
     paymentMessage("🏦 ชื่อบัญชี ร้านทดสอบ 🌐 KTB : 054-0-20552-4 🔵 TTB : 224-2-65761-3"),
-    "💳 ช่องทางชำระเงิน\n🏦 ชื่อบัญชี ร้านทดสอบ\n🌐 KTB : 054-0-20552-4\n🔵 TTB : 224-2-65761-3",
+    "💳 ช่องทางชำระเงิน\n🏦 ชื่อบัญชี ร้านทดสอบ\n🌐 ธนาคารกรุงไทย : 054-0-20552-4\n🔵 ธนาคารทหารไทยธนชาต (ttb) : 224-2-65761-3",
   );
   assert.equal(paymentMessage("กรุงไทย 1\nttb 2"), "💳 ช่องทางชำระเงิน\nกรุงไทย 1\nttb 2");
   assert.equal(paymentMessage(""), null);
-  assert.equal(withoutTtb("🏦 ชื่อบัญชี ร้านทดสอบ 🌐 KTB : 054-0-20552-4 🔵 TTB : 224-2-65761-3"), "🏦 ชื่อบัญชี ร้านทดสอบ\n🌐 KTB : 054-0-20552-4");
+  assert.equal(withoutTtb("🏦 ชื่อบัญชี ร้านทดสอบ 🌐 KTB : 054-0-20552-4 🔵 TTB : 224-2-65761-3"), "🏦 ชื่อบัญชี ร้านทดสอบ\n🌐 ธนาคารกรุงไทย : 054-0-20552-4");
 });
 
 test("ลูกค้า LINE ยังใช้แบบฟอร์ม LIFF เหมือนเดิม · ไม่ตั้ง PROMPTPAY_ID = ไม่ส่ง QR", async () => {
@@ -120,5 +128,5 @@ test("ไม่ใช้พร้อมเพย์ (ไม่ตั้ง PROMP
   const msgs = toUser(sent, "fb:222");
   assert.ok(!msgs.some((m: any) => m?.type === "image"));
   assert.ok(!/QR/.test(msgs[0]));
-  assert.match(JSON.stringify(msgs[1]), /\/order\?o=/);
+  assert.match(JSON.stringify(msgs[2]), /\/order\?o=/);
 });
