@@ -10,7 +10,7 @@ import {
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer, REVIEW_PROMO, REVIEW_REMINDER } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage, paidConfirmMessage,
-  decodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, withoutTtb, copyAccountMessage, type PricedOrder,
+  decodePostback, encodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, withoutTtb, copyAccountMessage, type PricedOrder,
 } from "./order.ts";
 import { accountNumbers, promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
 import { slipImageMessage } from "./slip.ts";
@@ -175,6 +175,14 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
       await notifyAdmin(deps, userId, `รูปที่ลูกค้าเพิ่งส่งคือรูปสินค้า (ไม่ใช่สลิป) ลูกค้าถามว่า: ${question.slice(0, 200)} — ส่งการ์ดให้เลือกเองแล้ว ช่วยยืนยันลายให้ลูกค้าด้วย`);
       return;
     }
+  }
+
+  // ช่วงพัก (แอดมินคุยอยู่ / ส่งเรื่องให้แอดมินแล้ว): ตอบเฉพาะ "การกดปุ่ม" — กดการ์ด หรือปุ่มเมนูแบบมีอีโมจิ (ข้อความตรงตัวจาก Rich Menu)
+  // ข้อความที่ลูกค้าพิมพ์เอง (รวม "ราคา" "กันน้ำไหม" ชื่อรุ่นรถ) → เงียบ ให้แอดมินตอบ (จักรแจ้ง 23 พ.ย. 2026: บอทแย่งตอบ)
+  // ยกเว้นข้างบน: ส่งรูปแล้วพิมพ์ "มีแบบนี้ไหม" (จับคู่กับรูปที่เพิ่งส่ง)
+  if (muted && !choice && !Object.values(MENU).includes(question.trim())) {
+    console.log(`[bot] พักตอบ ${userId.slice(0, 8)}… (แอดมินคุยอยู่ / ส่งเรื่องให้แอดมินแล้ว)`);
+    return;
   }
 
   // ปุ่ม Rich Menu ที่ตอบได้ด้วยโค้ด
@@ -354,6 +362,23 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
     return;
   }
 
+  // ปุ่มของแอดมินใต้ข้อความแจ้งเตือน: 🤫 ให้บอทเงียบกับลูกค้าคนนี้ (คุยเอง) / ▶️ ให้บอทตอบต่อ
+  // LINE ไม่แจ้งบอทเมื่อแอดมินตอบใน OA Manager → ต้องกดบอกเอง (Messenger รู้เองจาก echo)
+  if (pb.k === "mute") {
+    if (!deps.adminUserId || userId !== deps.adminUserId) return;
+    const state = deps.state ?? defaultState;
+    const name = await deps.line.displayName(pb.u).catch(() => "");
+    const who = name || "ลูกค้าคนนี้";
+    if (pb.on) {
+      await state.set(muteKey(pb.u), "admin", ADMIN_MUTE_SECONDS);
+      await deps.line.reply(replyToken, [{ type: "text", text: `🤫 บอทเงียบกับ ${who} ${ADMIN_MUTE_SECONDS / 60} นาทีแล้ว คุยได้เลยครับ\n(ลูกค้ากดปุ่มเมนู / การ์ด บอทยังตอบให้)`, quickReply: muteButtons(pb.u) }]);
+    } else {
+      await state.set(muteKey(pb.u), "", 1); // หมดอายุใน 1 วินาที = เลิกพัก
+      await deps.line.reply(replyToken, [`▶️ บอทกลับมาตอบ ${who} แล้วครับ`]);
+    }
+    return;
+  }
+
   // ปุ่มของแอดมิน — รับเฉพาะจากแอดมินจริง
   if (pb.k === "adm") {
     if (!deps.adminUserId || userId !== deps.adminUserId) return;
@@ -477,6 +502,14 @@ function defaultAsk(faq: string, question: string, userId: string, imageSets: st
 // ตอบด้วย reply token ก่อน (ฟรี) ถ้าไม่ได้ค่อย push
 // ความจำถาวร (lib/state.ts): โปรรีวิวส่งครั้งเดียวต่อลูกค้าต่อ 30 วัน · ช่วงพักหลังส่งเรื่องให้แอดมิน 10 นาที
 export const MUTE_SECONDS = 10 * 60;
+// แอดมินกด 🤫 เอง = ตั้งใจคุยกับลูกค้า → พักนานกว่า (กด ▶️ เลิกพักก่อนได้)
+export const ADMIN_MUTE_SECONDS = 30 * 60;
+
+// ปุ่มด่วนใต้ข้อความแจ้งแอดมิน
+function muteButtons(customerId: string) {
+  const btn = (label: string, on: 0 | 1) => ({ type: "action", action: { type: "postback", label, data: encodePostback({ k: "mute", u: customerId, on }), displayText: label } });
+  return { items: [btn(`🤫 บอทเงียบ ${ADMIN_MUTE_SECONDS / 60} นาที`, 1), btn("▶️ บอทตอบต่อ", 0)] };
+}
 const GREET_SECONDS = 30 * 24 * 60 * 60;
 const muteKey = (userId: string) => `mute:${userId}`;
 const greetKey = (userId: string) => `greet:${userId}`;
@@ -592,5 +625,9 @@ async function notifyAdmin(deps: BotDeps, userId: string, note: string, extra: O
   const name = await deps.line.displayName(userId).catch(() => "");
   const where = channelName(userId);
   const text = `🔔 ลูกค้าต้องการแอดมิน${where ? ` (${where})` : ""}\nชื่อ: ${name || "-"}\nเรื่อง: ${note}\n\nตอบได้ใน ${replyPlace(userId)}`;
-  await deps.line.push(deps.adminUserId, [text, ...extra]).catch((err) => console.error("[admin] แจ้งไม่สำเร็จ:", (err as Error).message));
+  // ปุ่ม 🤫 / ▶️ ติดข้อความสุดท้าย (ปุ่มด่วนของ LINE แสดงใต้ข้อความล่าสุดเท่านั้น)
+  const msgs: OutMessage[] = [text, ...extra];
+  const last = msgs[msgs.length - 1];
+  msgs[msgs.length - 1] = typeof last === "string" ? { type: "text", text: last, quickReply: muteButtons(userId) } : { ...last, quickReply: muteButtons(userId) };
+  await deps.line.push(deps.adminUserId, msgs).catch((err) => console.error("[admin] แจ้งไม่สำเร็จ:", (err as Error).message));
 }

@@ -1,4 +1,5 @@
 // Facebook Messenger / Instagram: แปลงข้อความเข้า-ออก + ส่งต่อให้สมองบอทตัวเดียวกับ LINE
+import { msgText } from "./helpers.ts";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -128,6 +129,6 @@ test("ทั้งระบบ: ลูกค้า Facebook กดสั่ง�
   await handleEvent((admin as any).event, deps);
   const notice = toLine.find((m) => m.to === "UADMIN");
   assert.ok(notice);
-  assert.match(String(notice!.msgs[0]), /Facebook/);
-  assert.match(String(notice!.msgs[0]), /Meta Business Suite/);
+  assert.match(msgText(notice!.msgs[0]), /Facebook/);
+  assert.match(msgText(notice!.msgs[0]), /Meta Business Suite/);
 });

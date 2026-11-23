@@ -1,5 +1,5 @@
 // ทดสอบแบบไม่ต้องใช้เน็ต/คีย์ — รัน: npm test
-import { upsellChoice } from "./helpers.ts";
+import { upsellChoice, msgText } from "./helpers.ts";
 import { test, beforeEach } from "node:test";
 import { _resetLocalState } from "../lib/state.ts";
 beforeEach(() => _resetLocalState());
@@ -143,7 +143,7 @@ test("ไม่มีใน FAQ: ตอบ default + บอกเวลาแอ
   assert.deepEqual(sent[0].texts, [DEFAULT_REPLY, adminNotice()]);
   assert.equal(sent[1].kind, "push");
   assert.equal(sent[1].to, "UADMIN");
-  assert.match(sent[1].texts[0], /เรืองแสง/);
+  assert.match(msgText(sent[1].texts[0]), /เรืองแสง/);
 });
 
 test("Sheet ดึงไม่ได้ / Gemini timeout → ขอโทษลูกค้า + แจ้งแอดมิน", async () => {
@@ -152,7 +152,7 @@ test("Sheet ดึงไม่ได้ / Gemini timeout → ขอโทษล�
     line, adminUserId: "UADMIN", getFaq: async () => { throw new Error("timeout"); },
   });
   assert.equal(sent[0].texts[0], ERROR_REPLY);
-  assert.match(sent[1].texts[0], /ระบบขัดข้อง/);
+  assert.match(msgText(sent[1].texts[0]), /ระบบขัดข้อง/);
 });
 
 test("LINE reply ไม่ได้ → ส่งแบบ push แทน", async () => {
@@ -324,7 +324,7 @@ test("สินค้าที่การ์ดไม่มีราคา + AI
   });
   assert.match(sent[0].texts[0], /สรุปที่เลือก: ขอบใหญ่, มีแผ่นใส/);
   assert.equal(sent[1].to, "UADMIN");
-  assert.match(sent[1].texts[0], /เลือกครบแล้ว: ขอบใหญ่, มีแผ่นใส \(สแตนเลส\)/);
+  assert.match(msgText(sent[1].texts[0]), /เลือกครบแล้ว: ขอบใหญ่, มีแผ่นใส \(สแตนเลส\)/);
 });
 
 test("ลูกค้ากดเลือกสี แต่ AI ลืมส่งขั้นต่อ → บอทส่งการ์ดขั้นขนาดให้เอง (ปุ่มพกสีที่เลือก)", async () => {
@@ -600,4 +600,45 @@ test("Upstash Redis: ส่งคำสั่ง GET/SET EX พร้อม toke
   const broken = redisStore("https://r.example", "tok", memoryStore(), async () => { throw new Error("down"); });
   await broken.set("greet:U1", "1", 60);
   assert.equal(await broken.get("greet:U1"), "1");
+});
+
+test("ช่วงพัก: ข้อความที่ลูกค้าพิมพ์เองเงียบหมด (คำเมนู / กันน้ำ / ชื่อรุ่นรถ) · กดปุ่มเมนูที่มีอีโมจิยังตอบ (จักรแจ้ง 23 พ.ย.: บอทแย่งตอบ)", async () => {
+  const state = memoryStore(() => 0);
+  const { line, sent } = fakeLine();
+  const deps = { line, adminUserId: "UADMIN", state, getFaq: async () => "faq", getImageSets: async () => sampleSets(), ask: async () => ({ reply: "x", needsAdmin: false, adminNote: "" }) };
+  await state.set("mute:U1", "1", 600);
+  for (const text of ["ราคา", "สั่งซื้อ", "กันน้ำไหม", "มีรีวิวไหม", "รถไฮเอซครับ"]) await handleEvent(msgEvent({ type: "text", text }), deps);
+  assert.equal(sent.length, 0, "พิมพ์เองช่วงพัก → ไม่ตอบเลย");
+  await handleEvent(msgEvent({ type: "text", text: MENU.order }), deps); // กดปุ่ม Rich Menu
+  assert.equal(sent.length, 1);
+});
+
+test("LINE: แจ้งแอดมินมีปุ่ม 🤫 บอทเงียบ / ▶️ บอทตอบต่อ · กด 🤫 → บอทเงียบกับลูกค้าคนนั้น 30 นาที · กด ▶️ → ตอบต่อ · คนอื่นกดไม่ได้", async () => {
+  let t = 0;
+  const state = memoryStore(() => t);
+  const { line, sent } = fakeLine();
+  let asks = 0;
+  const deps = { line, adminUserId: "UADMIN", state, getFaq: async () => "faq", getImageSets: async () => [], ask: async () => (asks++, { reply: "ตอบครับ", needsAdmin: false, adminNote: "" }) };
+  await handleEvent(msgEvent({ type: "text", text: MENU.admin }), deps);
+  const notice = sent.find((s) => s.to === "UADMIN")!.texts.at(-1);
+  const [muteBtn, resumeBtn] = notice.quickReply.items.map((i: any) => i.action);
+  assert.deepEqual([muteBtn.label, resumeBtn.label], ["🤫 บอทเงียบ 30 นาที", "▶️ บอทตอบต่อ"]);
+  const press = (data: string, from = "UADMIN") => handleEvent({ type: "postback", source: { type: "user", userId: from }, replyToken: "rt", postback: { data } } as any, deps);
+
+  await press(muteBtn.data, "USTRANGER"); // คนอื่นกด → ไม่มีผล
+  t += 11 * 60_000; // ช่วงพักจากการกด "คุยกับแอดมิน" หมดแล้ว
+  await handleEvent(msgEvent({ type: "text", text: "สวัสดี" }), deps);
+  assert.equal(asks, 1);
+
+  await press(muteBtn.data);
+  assert.match(msgText(sent.at(-1)!.texts[0]), /บอทเงียบกับ .* 30 นาทีแล้ว/);
+  t += 25 * 60_000;
+  await handleEvent(msgEvent({ type: "text", text: "ราคาเท่าไหร่ครับ" }), deps);
+  assert.equal(asks, 1, "25 นาทีหลังกด 🤫 ยังเงียบ");
+
+  await press(resumeBtn.data);
+  assert.match(msgText(sent.at(-1)!.texts[0]), /บอทกลับมาตอบ/);
+  t += 2_000;
+  await handleEvent(msgEvent({ type: "text", text: "ราคาเท่าไหร่ครับ" }), deps);
+  assert.equal(asks, 2, "กด ▶️ แล้วตอบต่อ");
 });

@@ -1,4 +1,5 @@
 // ลูกค้าส่งรูป + "มีแบบนี้ไหม" (บอทมองรูปไม่เห็น) · AI ห้ามข้ามขั้นเลือกแบบ → ตะกร้าไม่เพี้ยน
+import { msgText } from "./helpers.ts";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { _resetLocalState } from "../lib/state.ts";
@@ -62,7 +63,7 @@ test("รูปมาก่อน 'มีแบบนี้ไหม' → ได
   assert.equal(asked.length, 0);
   assert.equal(toCustomer[0].texts[0], IMAGE_REPLY);
   assert.equal(toCustomer[1].texts[0], PHOTO_ASK_REPLY);
-  assert.ok(sent.filter((s) => s.to === "UADMIN").some((s) => /ไม่ใช่สลิป/.test(s.texts[0])));
+  assert.ok(sent.filter((s) => s.to === "UADMIN").some((s) => /ไม่ใช่สลิป/.test(msgText(s.texts[0]))));
 });
 
 test("รูปอย่างเดียว (สลิป) → ตอบแบบเดิม", async () => {

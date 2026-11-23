@@ -1,5 +1,5 @@
 // การ์ดประเภทสินค้า 7 ใบ + ขั้นตอนต่อสินค้า + ป้ายภาษีอย่างเดียว + ปุ่ม Rich Menu — รัน: npm test
-import { upsellChoice } from "./helpers.ts";
+import { upsellChoice, msgText } from "./helpers.ts";
 import { test, beforeEach } from "node:test";
 import { _resetLocalState } from "../lib/state.ts";
 beforeEach(() => _resetLocalState());
@@ -189,7 +189,7 @@ test("ปุ่มเมนู 💰 ราคา → รายการราค
   await handleEvent(msgEvent(MENU.admin), { line: b.line, adminUserId: "UADMIN", getImageSets: async () => sampleSets(), ask: noAsk });
   assert.match(b.sent[0].texts[0], /แจ้งแอดมินให้แล้ว/);
   assert.equal(b.sent[1].to, "UADMIN");
-  assert.match(b.sent[1].texts[0], /คุยกับแอดมิน/);
+  assert.match(msgText(b.sent[1].texts[0]), /คุยกับแอดมิน/);
 });
 
 test("ปุ่มเมนู 🔧 วิธีติดตั้ง → การ์ด 8 รุ่น ปุ่มเปิด YouTube + ภาพปกคลิป (ไม่เรียก AI)", async () => {
