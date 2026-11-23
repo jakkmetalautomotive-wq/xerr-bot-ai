@@ -148,7 +148,7 @@ test("ไม่มีใน FAQ: ตอบ default + บอกเวลาแอ
 
 test("Sheet ดึงไม่ได้ / Gemini timeout → ขอโทษลูกค้า + แจ้งแอดมิน", async () => {
   const { line, sent } = fakeLine();
-  await handleEvent(msgEvent({ type: "text", text: "ราคา" }), {
+  await handleEvent(msgEvent({ type: "text", text: "ราคาเท่าไหร่ครับ" }), {
     line, adminUserId: "UADMIN", getFaq: async () => { throw new Error("timeout"); },
   });
   assert.equal(sent[0].texts[0], ERROR_REPLY);

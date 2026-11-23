@@ -134,3 +134,19 @@ test("ไม่ใช้พร้อมเพย์ (ไม่ตั้ง PROMP
   assert.ok(!/QR/.test(msgs[0]));
   assert.match(JSON.stringify(msgs[2]), /\/order\?o=/);
 });
+
+// ---------- Messenger ไม่มี Rich Menu: พิมพ์คำเมนูเปล่า ๆ ได้ ----------
+import { isMenu } from "../lib/bot.ts";
+import { MENU } from "../lib/shop.ts";
+
+test("คำเมนูไม่มี emoji ('สั่งซื้อ', 'คุยกับแอดมิน') → ทำงานเหมือนกดปุ่ม · ประโยคอื่นไม่นับ", async () => {
+  assert.ok(isMenu("สั่งซื้อ", MENU.order));
+  assert.ok(isMenu(" 🛒 สั่งซื้อ ", MENU.order));
+  assert.ok(isMenu("คุยกับแอดมิน", MENU.admin));
+  assert.ok(!isMenu("อยากสั่งซื้อครับ", MENU.order));
+  const { line, sent } = fakeLine();
+  let asked = 0;
+  await handleEvent(ev({ type: "text", id: "t", text: "สั่งซื้อ" }, "fb:333"), { ...deps(line), ask: async () => (asked++, { reply: "x", needsAdmin: false, adminNote: "" }) });
+  assert.equal(asked, 0); // ไม่ต้องรอ AI
+  assert.match(JSON.stringify(sent[0].texts), /เลือกประเภทสินค้า/);
+});

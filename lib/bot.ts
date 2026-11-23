@@ -62,6 +62,12 @@ export interface BotDeps {
 
 const STICKER = "[ลูกค้าส่งสติกเกอร์]";
 
+// ปุ่มเมนูมี emoji นำหน้า ("🛒 สั่งซื้อ") · Messenger ไม่มี Rich Menu ลูกค้าพิมพ์เอง → รับคำเปล่า ("สั่งซื้อ") ด้วย
+export function isMenu(question: string, menuText: string): boolean {
+  const q = question.trim();
+  return q === menuText || q === menuText.replace(/^\S+\s+/, "");
+}
+
 export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<void> {
   if (event.source?.type !== "user" || !event.source.userId) return;
   if (event.type === "postback") return handlePostback(event as webhook.PostbackEvent, event.source.userId, deps);
@@ -173,7 +179,7 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
 
   // ปุ่ม Rich Menu ที่ตอบได้ด้วยโค้ด
   const category = sets.find((s) => s.name === CATEGORY_SET);
-  if (question.trim() === MENU.order && category) {
+  if (isMenu(question, MENU.order) && category) {
     await send(deps, replyToken, userId, ["เลือกประเภทกรอบป้ายได้เลยครับ 😊", buildCarousel(category)]);
     addTurn(userId, question, `[ส่งการ์ด "${CATEGORY_SET}" ให้ลูกค้าเลือกแล้ว]`);
     return;
@@ -185,7 +191,7 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     [MENU.design, () => DESIGN_TEXT],
   ];
   for (const [menuText, reply] of textMenus) {
-    const text = question.trim() === menuText ? reply() : null;
+    const text = isMenu(question, menuText) ? reply() : null;
     if (!text) continue;
     await send(deps, replyToken, userId, [{ type: "text", text, quickReply: { items: [{ type: "action", action: { type: "message", label: MENU.order, text: MENU.order } }] } }]);
     addTurn(userId, question, text);
@@ -205,12 +211,12 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
   ];
   for (const [text, setName, intro] of linkMenus) {
     const linkSet = sets.find((s) => s.name === setName);
-    if (question.trim() !== text || !linkSet?.items.length) continue;
+    if (!isMenu(question, text) || !linkSet?.items.length) continue;
     await send(deps, replyToken, userId, [intro, buildCarousel(linkSet)]);
     addTurn(userId, question, `[ส่งการ์ด "${setName}" ให้ลูกค้าแล้ว]`);
     return;
   }
-  if (question.trim() === MENU.admin) {
+  if (isMenu(question, MENU.admin)) {
     await send(deps, replyToken, userId, ["รับทราบครับ 🙏 แจ้งแอดมินให้แล้ว", adminNotice()]);
     await state.set(muteKey(userId), "1", MUTE_SECONDS);
     await notifyAdmin(deps, userId, "ลูกค้ากดปุ่ม \"คุยกับแอดมิน\"");
