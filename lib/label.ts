@@ -17,12 +17,14 @@ export type LabelData = {
   items: string[];
   total: number;
   at: number; // เวลาที่ลูกค้าส่งที่อยู่ (ms)
+  user?: string; // ลูกค้าเจ้าของที่อยู่ — ส่งการ์ดเช็คที่อยู่ให้เฉพาะคนนี้
+  form?: string; // ลิงก์แบบฟอร์ม ไว้ทำปุ่ม "แก้ไขที่อยู่"
 };
 
 const LABEL_SECONDS = 60 * 24 * 60 * 60;
 const labelKey = (code: string) => `label:${code}`;
 
-export function labelFromOrder(o: PricedOrder, a: Address, at = Date.now()): LabelData {
+export function labelFromOrder(o: PricedOrder, a: Address, at = Date.now(), owner: { user?: string; form?: string } = {}): LabelData {
   return {
     code: o.code,
     name: a.name,
@@ -33,6 +35,7 @@ export function labelFromOrder(o: PricedOrder, a: Address, at = Date.now()): Lab
     items: [`${o.productLabel}${o.picks.length ? `: ${o.picks.join(" / ")}` : ""}`, ...(o.tax ? [TAX_CAR.name] : [])],
     total: o.total,
     at,
+    ...owner,
   };
 }
 
@@ -50,19 +53,67 @@ export async function getLabel(state: StateStore, code: string): Promise<LabelDa
   }
 }
 
-const sign = (code: string, secret: string) => crypto.createHmac("sha256", secret).update(`label:${code}`).digest("base64url").slice(0, 22);
+// label = หน้าพิมพ์ของร้าน · check = หน้าให้ลูกค้าเช็คที่อยู่ (คนละลายเซ็น → ลูกค้าเปิดหน้าพิมพ์ "ชำระเงินแล้ว" เองไม่ได้)
+type LabelView = "label" | "check";
+const sign = (code: string, secret: string, view: LabelView) => crypto.createHmac("sha256", secret).update(`${view}:${code}`).digest("base64url").slice(0, 22);
 
-export function signLabel(code: string, secret: string): string {
-  return `${code}.${sign(code, secret)}`;
+export function signLabel(code: string, secret: string, view: LabelView = "label"): string {
+  return `${code}.${sign(code, secret, view)}`;
 }
 
-export function verifyLabel(token: string, secret: string): string | null {
+export function verifyLabel(token: string, secret: string, view: LabelView = "label"): string | null {
   const m = token.match(/^(XR-[A-Z0-9]{2,12})\.([\w-]{22})$/);
   if (!m || !secret) return null;
-  return crypto.timingSafeEqual(Buffer.from(m[2]), Buffer.from(sign(m[1], secret))) ? m[1] : null;
+  return crypto.timingSafeEqual(Buffer.from(m[2]), Buffer.from(sign(m[1], secret, view))) ? m[1] : null;
 }
 
 export const labelUrl = (code: string, secret: string) => `${baseUrl()}/api/label?t=${encodeURIComponent(signLabel(code, secret))}`;
+
+export const checkUrl = (code: string, secret: string) => `${baseUrl()}/api/label?c=${encodeURIComponent(signLabel(code, secret, "check"))}`;
+
+// การ์ดถึงลูกค้าหลังกรอกที่อยู่: เช็คชื่อ เบอร์ ที่อยู่ บนใบปะหน้าให้ถูกก่อนจัดส่ง
+export const ADDRESS_CHECK_TEXT = "รบกวนเช็คชื่อ เบอร์ และที่อยู่ให้ถูกต้องอีกครั้งนะครับ 🙏 จัดส่งแล้วจะแก้ไขไม่ได้";
+export function addressCheckMessage(d: LabelData, secret: string) {
+  const row = (label: string, value: string) => ({
+    type: "box",
+    layout: "vertical",
+    contents: [
+      { type: "text", text: label, size: "xs", color: "#888888" },
+      { type: "text", text: value, size: "md", weight: "bold", color: "#111111", wrap: true },
+    ],
+  });
+  return {
+    type: "flex" as const,
+    altText: `📦 เช็คที่อยู่จัดส่ง ออเดอร์ ${d.code} ${ADDRESS_CHECK_TEXT}`.slice(0, 400),
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: `📦 ใบปะหน้า ออเดอร์ ${d.code}`, weight: "bold", size: "lg", wrap: true },
+          { type: "separator" },
+          row("ชื่อผู้รับ", d.name),
+          row("เบอร์โทร", formatPhone(d.phone)),
+          row("ที่อยู่", `${d.address} ${d.zip}`),
+          ...(d.note ? [row("หมายเหตุ", d.note)] : []),
+          { type: "separator" },
+          { type: "text", text: `⚠️ ${ADDRESS_CHECK_TEXT}`, size: "sm", weight: "bold", color: "#D32F2F", wrap: true },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          { type: "button", style: "primary", color: "#111111", height: "sm", action: { type: "uri", label: "🔍 ดูใบปะหน้า", uri: checkUrl(d.code, secret) } },
+          ...(d.form ? [{ type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "✏️ แก้ไขที่อยู่", uri: d.form } }] : []),
+        ],
+      },
+    },
+  };
+}
 
 // ข้อความถึงแอดมินหลังกด ✅ — ข้อความธรรมดา ส่งต่อให้พนักงานในไลน์ได้เลย
 export function labelReadyText(code: string, name: string, url: string) {
@@ -84,7 +135,8 @@ export function senderLines(raw = process.env.SHIP_FROM ?? ""): string[] {
 const thaiDate = (ms: number) =>
   new Date(ms).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", day: "numeric", month: "short", year: "2-digit" });
 
-export function labelHtml(d: LabelData, sender: string[] = senderLines()): string {
+// forCustomer = หน้าให้ลูกค้าเช็คที่อยู่: ไม่มีปุ่มพิมพ์ ไม่มีคำว่า "ชำระเงินแล้ว"
+export function labelHtml(d: LabelData, sender: string[] = senderLines(), forCustomer = false): string {
   const [senderName, ...senderRest] = sender;
   return `<!doctype html>
 <html lang="th"><head>
@@ -99,6 +151,7 @@ export function labelHtml(d: LabelData, sender: string[] = senderLines()): strin
   body { background: #e9e9e9; font-family: "Sarabun", "Tahoma", sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .tools { max-width: 100mm; margin: 16px auto 10px; display: flex; gap: 8px; padding: 0 4px; }
   .tools button { flex: 1; font: 800 18px "Sarabun", sans-serif; padding: 14px; border: 0; border-radius: 10px; background: #111; color: #fff; }
+  .check { max-width: 100mm; margin: 16px auto 10px; padding: 12px 14px; border-radius: 10px; background: #fff3f3; color: #b71c1c; font-size: 16px; font-weight: 600; line-height: 1.5; }
   .label { width: 100mm; height: 150mm; margin: 0 auto 24px; background: #fff; padding: 5mm; display: flex; flex-direction: column; gap: 3mm; overflow: hidden; }
   .top { display: flex; justify-content: space-between; align-items: center; border-bottom: 0.6mm solid #000; padding-bottom: 2.5mm; }
   .brand { background: #000; color: #fff; padding: 1.5mm 3mm; border-radius: 1.5mm; line-height: 1; }
@@ -127,7 +180,7 @@ export function labelHtml(d: LabelData, sender: string[] = senderLines()): strin
   }
 </style></head>
 <body>
-<div class="tools"><button onclick="window.print()">🖨️ พิมพ์ใบปะหน้า</button></div>
+${forCustomer ? `<div class="check">⚠️ ${esc(ADDRESS_CHECK_TEXT)}</div>` : `<div class="tools"><button onclick="window.print()">🖨️ พิมพ์ใบปะหน้า</button></div>`}
 <main class="label">
   <div class="top">
     <div class="brand"><b>XERR</b><span>AUTOTEAM</span></div>
@@ -146,7 +199,7 @@ export function labelHtml(d: LabelData, sender: string[] = senderLines()): strin
   </section>
   <ul class="items">${d.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
   ${d.note ? `<div class="note">📝 ${esc(d.note)}</div>` : ""}
-  <div class="paid">ชำระเงินแล้ว · ไม่เก็บเงินปลายทาง</div>
+  ${forCustomer ? "" : `<div class="paid">ชำระเงินแล้ว · ไม่เก็บเงินปลายทาง</div>`}
 </main>
 </body></html>`;
 }

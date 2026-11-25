@@ -46,9 +46,20 @@ export function promptPayImageMessage(orderToken: string) {
   return { type: "image", originalContentUrl: url, previewImageUrl: url };
 }
 
-// เลขบัญชีทุกบัญชีใน PAYMENT_INFO (เช่น 054-0-20552-4) → ส่งแยกบัญชีละ 1 ข้อความ (เลขอย่างเดียว)
-// Messenger แปลงข้อความเลขบัญชีเป็นการ์ดธนาคารพร้อมปุ่ม "โอนด้วย K PLUS / Krungthai / SCB Easy" ให้เอง · LINE กดค้างคัดลอกได้
-export function accountNumbers(paymentInfo: string): string[] {
-  const found = (paymentInfo.match(/\d[\d -]{7,}\d/g) ?? []).map((n) => n.trim());
-  return [...new Set(found)].slice(0, 3);
+// เลขบัญชีทุกบัญชีใน PAYMENT_INFO (เช่น "ธนาคารกรุงไทย : 054-0-20552-4") พร้อมชื่อธนาคารที่เขียนไว้หน้าเลข
+export function bankAccounts(paymentInfo: string): { bank: string; number: string }[] {
+  const out: { bank: string; number: string }[] = [];
+  let from = 0;
+  for (const m of paymentInfo.matchAll(/\d[\d -]{7,}\d/g)) {
+    const number = m[0].trim();
+    // ข้อความระหว่างเลขก่อนหน้ากับเลขนี้ → บรรทัดสุดท้ายที่มีตัวอักษร ตัดอีโมจิ/เครื่องหมายออก
+    const last = paymentInfo.slice(from, m.index).split("\n")
+      .map((l) => l.replace(/เลขที่บัญชี|เลขบัญชี|เลขที่/g, "").replace(/^[^\p{L}]+|[^\p{L}\p{M})]+$/gu, ""))
+      .filter(Boolean)
+      .at(-1) ?? "";
+    const bank = (last.match(/ธนาคาร.*$/)?.[0] ?? (/ชื่อบัญชี/.test(last) ? "" : last)).slice(0, 60);
+    from = m.index + m[0].length;
+    if (!out.some((a) => a.number === number)) out.push({ bank, number });
+  }
+  return out.slice(0, 3);
 }

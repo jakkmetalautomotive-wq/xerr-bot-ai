@@ -54,5 +54,5 @@ test("แอดมินกด ✅ → ได้ลิงก์ใบปะห�
   assert.equal(verifyLabel(url.searchParams.get("t")!, "secret"), "XR-AB12");
 
   await press("XR-CD34");
-  assert.match(replies.at(-1)[1], /ไม่มีที่อยู่ของ XR-CD34/);
+  assert.match(replies.at(-1)[1], /ยังไม่ได้กรอกแบบฟอร์มที่อยู่ของ XR-CD34/);
 });

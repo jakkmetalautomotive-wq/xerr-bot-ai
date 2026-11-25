@@ -5,7 +5,7 @@ import { _resetLocalState } from "../lib/state.ts";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets } from "../lib/images.ts";
 import { verifyOrder, decodePostback, signOrder, paymentMessage, withoutTtb } from "../lib/order.ts";
-import { crc16, promptPayPayload, accountNumbers } from "../lib/promptpay.ts";
+import { crc16, promptPayPayload } from "../lib/promptpay.ts";
 import { toMetaMessages } from "../lib/meta.ts";
 
 beforeEach(() => _resetLocalState());
@@ -37,8 +37,6 @@ test("พร้อมเพย์: CRC ตามมาตรฐาน · เบ�
   assert.ok(promptPayPayload("1234567890123", 419)!.includes("02131234567890123"));
   assert.equal(promptPayPayload("12345", 100), null);
   assert.equal(promptPayPayload("0812345678", 0), null);
-  assert.deepEqual(accountNumbers(PAY), ["123-4-56789-0", "987-6-54321-0"]);
-  assert.deepEqual(accountNumbers("ไม่มีเลข"), []);
 });
 
 const toUser = (sent: { to: string; texts: any[] }[], id: string) => sent.filter((x) => x.to === id).flatMap((x) => x.texts);

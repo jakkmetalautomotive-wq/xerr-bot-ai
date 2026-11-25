@@ -10,13 +10,13 @@ import {
 import { DEFAULT_REPLY, ERROR_REPLY, IMAGE_REPLY, MENU, SHIPPING, TAX_CAR, DESIGN_TEXT, adminNotice, bangkokClock, promoText, cannedAnswer, REVIEW_PROMO, REVIEW_REMINDER } from "./shop.ts";
 import {
   priceOrder, newOrderCode, signOrder, orderSummaryText, taxUpsellMessage, addressButtonMessage, paidConfirmMessage,
-  decodePostback, encodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, withoutTtb, copyAccountMessage, type PricedOrder,
+  decodePostback, encodePostback, parseAddressSent, productLabel, isTaxOnly, isMetaUser, slipConfirmMessage, withoutTtb, copyAccountMessage, bankAccountsMessage, orderFormUrl, type PricedOrder,
 } from "./order.ts";
-import { accountNumbers, promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
+import { promptPayEnabled, promptPayImageMessage } from "./promptpay.ts";
 import { slipImageMessage } from "./slip.ts";
 import { fetchCustomerImage, readPhoto, type PhotoRead } from "./vision.ts";
 import { defaultState, type StateStore } from "./state.ts";
-import { getLabel, labelReadyText, labelUrl } from "./label.ts";
+import { addressReplies, clearSlip, isPaid, labelMessage, markPaid, markSlip, parseLabelRequest } from "./order-stage.ts";
 import { parseReviewQuery, pickReviews, reviewMessages, toReviewPhotos, loadReviewFiles, reviewOrderCard, soldPhotos, isSold, askedDesign, type ReviewPhoto } from "./reviews.ts";
 import { logOrder, statusEvent, ORDER_STATUS, setTracking, getTracking, parseTrackingLines, type OrderLogEvent, type TrackingInfo } from "./orderlog.ts";
 
@@ -100,10 +100,25 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
     return;
   }
 
+  // แอดมินพิมพ์ "ใบปะหน้า XR-AB12" → ส่งลิงก์ใบปะหน้าให้อีกครั้ง
+  const labelCodes = msg.type === "text" && userId === deps.adminUserId ? parseLabelRequest(msg.text) : null;
+  if (labelCodes) {
+    const st = deps.state ?? defaultState;
+    const texts = await Promise.all(labelCodes.map(async (code) => {
+      const label = await labelMessage(st, code, deps.orderSecret);
+      if (!label) return `🖨️ ยังไม่มีที่อยู่ของ ${code} ในระบบ — ลูกค้ายังไม่ได้กรอกแบบฟอร์มที่อยู่ หรือรหัสไม่ตรง (เก็บไว้ 60 วัน)`;
+      return (await isPaid(st, code)) ? label : `${label}\n⚠️ ยังไม่พบว่ากด ✅ ได้รับเงินแล้ว ของออเดอร์นี้`;
+    }));
+    await deps.line.reply(replyToken, [texts.length ? texts.join("\n\n") : "พิมพ์รหัสออเดอร์มาด้วยนะครับ เช่น ใบปะหน้า XR-AB12"]);
+    return;
+  }
+
   // ลูกค้ากดส่งแบบฟอร์มที่อยู่แล้ว (ข้อความนี้ส่งจากแบบฟอร์มในนามลูกค้า)
   const sent = msg.type === "text" ? parseAddressSent(msg.text.trim()) : null;
   if (sent) {
-    await send(deps, replyToken, userId, [`รับที่อยู่จัดส่งแล้วครับ ✅ ออเดอร์ ${sent.code}\nโอนยอด ${sent.total}.- แล้วส่งสลิปในแชทนี้ได้เลยครับ 🙏`]);
+    // ส่งสลิปมาก่อนแล้ว → ไม่ขอซ้ำ · แนบใบปะหน้าให้ลูกค้าเช็คที่อยู่
+    const st = deps.state ?? defaultState;
+    await send(deps, replyToken, userId, await addressReplies(st, sent.code, sent.total, userId, deps.orderSecret, (await lastOrderCode(st, userId)) === sent.code));
     return;
   }
 
@@ -129,11 +144,13 @@ export async function handleEvent(event: webhook.Event, deps: BotDeps): Promise<
       }
       await state.set(photoKey(userId), "slip", PHOTO_SECONDS);
     }
+    // จำว่าออเดอร์นี้ได้สลิปแล้ว (AI ดูไม่ได้ = ถือว่าเป็นสลิปไว้ก่อน แอดมินเช็คยอดเองอยู่แล้ว) · จำก่อนตอบ เผื่อลูกค้ากรอกที่อยู่ต่อทันที
+    const open = image ? await openOrder(state, userId) : null;
+    if (open && (!read || read.kind === "slip")) await markSlip(state, open.code).catch(() => {});
     // ช่วงพัก: ส่งรูปเข้าแชทแอดมินตามปกติ แต่ไม่ตอบ "ได้รับรูปแล้ว" ซ้ำ
     if (!muted) await send(deps, replyToken, userId, [IMAGE_REPLY, adminNotice()]);
     await state.set(muteKey(userId), "1", MUTE_SECONDS);
     // รูป → ส่งรูปนั้นเข้าแชทแอดมินด้วย (ดูสลิปแล้วกด ✅ ได้เลย) · ไฟล์ / วิดีโอ → แจ้งให้ไปดูใน OA Manager
-    const open = image && isCustomer ? await openOrder(state, userId) : null;
     await notifyAdmin(
       deps,
       userId,
@@ -386,21 +403,22 @@ async function handlePostback(event: webhook.PostbackEvent, userId: string, deps
     if (pb.a === "ok") {
       // ปุ่มยืนยันมีทั้งใต้การ์ดออเดอร์และใต้รูปสลิป → กดซ้ำไม่ส่งหาลูกค้าซ้ำ
       const st = deps.state ?? defaultState;
-      if ((await st.get(paidKey(pb.c))) !== null) {
-        await deps.line.reply(replyToken, [`ออเดอร์ ${pb.c} ยืนยันรับเงินไปแล้วครับ (ไม่ได้ส่งหาลูกค้าซ้ำ)`]);
+      if (await isPaid(st, pb.c)) {
+        const label = await labelMessage(st, pb.c, deps.orderSecret);
+        await deps.line.reply(replyToken, [`ออเดอร์ ${pb.c} ยืนยันรับเงินไปแล้วครับ (ไม่ได้ส่งหาลูกค้าซ้ำ)`, ...(label ? [label] : [])]);
         return;
       }
-      await st.set(paidKey(pb.c), "1", OPEN_ORDER_SECONDS * 10);
+      await markPaid(st, pb.c);
       await deps.line.push(pb.u, [paidConfirmMessage(pb.c, pb.t)]);
       const logged = await log(statusEvent(pb.c, ORDER_STATUS.paid));
       // ใบปะหน้า: ที่อยู่ที่ลูกค้ากรอกไว้ → ลิงก์หน้าพิมพ์ ส่งต่อให้พนักงานได้เลย
-      const label = await getLabel(deps.state ?? defaultState, pb.c).catch(() => null);
-      const labelMsg = label && deps.orderSecret
-        ? labelReadyText(pb.c, label.name, labelUrl(pb.c, deps.orderSecret))
-        : `🖨️ ไม่มีที่อยู่ของ ${pb.c} ในระบบใบปะหน้า (ลูกค้าไม่ได้กรอกแบบฟอร์ม) — ดูที่อยู่ในแชทแทนนะครับ`;
+      // ยังไม่กรอกที่อยู่ → ใบปะหน้าส่งตามมาเองตอนลูกค้ากรอก (app/api/order)
+      const labelMsg = (await labelMessage(st, pb.c, deps.orderSecret))
+        ?? `🖨️ ลูกค้ายังไม่ได้กรอกแบบฟอร์มที่อยู่ของ ${pb.c} — กรอกเมื่อไหร่ บอทส่งใบปะหน้าให้ทันทีครับ (ถ้าลูกค้าพิมพ์ที่อยู่ในแชทแทน ให้ดูในแชทนะครับ)`;
       await deps.line.reply(replyToken, [`✅ ยืนยันออเดอร์ ${pb.c} แล้ว · แจ้งลูกค้าแล้ว${logged ? " · ลงชีทแล้ว" : ""}`, labelMsg]);
     } else {
       await deps.line.push(pb.u, [`ขออภัยครับ ยอดโอนของออเดอร์ ${pb.c} ยังไม่ตรง/ยังไม่พบยอด เดี๋ยวแอดมินติดต่อกลับในแชทนี้นะครับ 🙏`]);
+      await clearSlip(deps.state ?? defaultState, pb.c);
       await log(statusEvent(pb.c, ORDER_STATUS.mismatch));
       await deps.line.reply(replyToken, [`แจ้งลูกค้าแล้วว่ายอดออเดอร์ ${pb.c} ยังไม่ตรง · คุยต่อใน ${replyPlace(pb.u)} ได้เลย`]);
     }
@@ -424,13 +442,13 @@ async function startOrder(deps: BotDeps, replyToken: string, userId: string, set
 
 // สรุปยอด + เลขบัญชี + ปุ่มกรอกที่อยู่
 // ลูกค้า LINE → แบบฟอร์มใน LINE (LIFF) · ลูกค้า Facebook/Instagram → หน้าเว็บ /order (ลิงก์มีลายเซ็นผูกกับลูกค้าคนนี้)
-// จ่ายเงิน: เลขบัญชีแยกบัญชีละข้อความ (Messenger ทำเป็นการ์ดมีปุ่มโอน · LINE กดค้างคัดลอก) · QR พร้อมเพย์เฉพาะถ้าตั้ง PROMPTPAY_ID (ร้านไม่ใช้)
+// จ่ายเงิน: Messenger ทำเป็นการ์ดมีปุ่มโอน · LINE การ์ดชื่อธนาคาร + เลขบัญชี + ปุ่มคัดลอก · QR พร้อมเพย์เฉพาะถ้าตั้ง PROMPTPAY_ID (ร้านไม่ใช้)
 async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: string, order: PricedOrder, turnText: string) {
   const meta = isMetaUser(userId);
   const token = deps.orderSecret
     ? signOrder({ code: order.code, product: order.product, picks: order.picks, tax: order.tax, total: order.total, ...(meta ? { u: userId } : {}) }, deps.orderSecret)
     : "";
-  const formUrl = !token ? "" : meta ? `${baseUrl()}/order?o=${encodeURIComponent(token)}` : deps.liffId ? `https://liff.line.me/${deps.liffId}?o=${encodeURIComponent(token)}` : "";
+  const formUrl = orderFormUrl(token, meta, deps.liffId);
   const qr = Boolean(token) && promptPayEnabled();
   if (meta) {
     // Messenger: สรุปยอด (มีช่องทางชำระเงินในตัว · Messenger ทำการ์ดธนาคารพร้อมปุ่มโอน) → รอให้การ์ดขึ้นก่อน → ปุ่มกรอกที่อยู่
@@ -444,11 +462,11 @@ async function sendOrderSummary(deps: BotDeps, replyToken: string, userId: strin
       await send(deps, replyToken, userId, after);
     }
   } else {
-    // LINE: ข้อมูลโอนอยู่ในสรุป + เลขบัญชีแยกข้อความ (กดค้างคัดลอก)
-    const accounts = accountNumbers(deps.paymentInfo ?? "");
-    const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, copyAccount: accounts.length > 0 })];
+    // LINE: ข้อมูลโอนอยู่ในสรุป + การ์ดเลขบัญชีระบุธนาคาร มีปุ่มคัดลอก
+    const accounts = bankAccountsMessage(deps.paymentInfo ?? "");
+    const out: OutMessage[] = [orderSummaryText(order, deps.paymentInfo ?? "", Boolean(formUrl), { qr, copyAccount: accounts !== null })];
     if (qr) out.push(promptPayImageMessage(token));
-    out.push(...accounts);
+    if (accounts) out.push(accounts);
     if (formUrl) out.push(addressButtonMessage(formUrl));
     await send(deps, replyToken, userId, out);
   }
@@ -517,14 +535,21 @@ const greetKey = (userId: string) => `greet:${userId}`;
 // ออเดอร์ล่าสุดที่ส่งสรุปยอดไป (รอสลิป) · ออเดอร์ที่แอดมินยืนยันรับเงินแล้ว
 const OPEN_ORDER_SECONDS = 3 * 24 * 60 * 60;
 const openOrderKey = (userId: string) => `order:${userId}`;
-const paidKey = (code: string) => `paid:${code}`;
+// ออเดอร์ล่าสุดที่บอทสรุปให้ลูกค้าคนนี้ (จ่ายแล้วก็นับ)
+async function lastOrderCode(state: StateStore, userId: string): Promise<string> {
+  try {
+    return String(JSON.parse((await state.get(openOrderKey(userId))) ?? "{}").code ?? "");
+  } catch {
+    return "";
+  }
+}
 async function openOrder(state: StateStore, userId: string): Promise<{ code: string; total: number } | null> {
   const v = await state.get(openOrderKey(userId)).catch(() => null);
   if (!v) return null;
   try {
     const o = JSON.parse(v);
     if (typeof o.code !== "string" || typeof o.total !== "number") return null;
-    return (await state.get(paidKey(o.code)).catch(() => null)) === null ? o : null; // จ่ายแล้ว = ไม่ค้าง
+    return (await isPaid(state, o.code)) ? null : o; // จ่ายแล้ว = ไม่ค้าง
   } catch {
     return null;
   }

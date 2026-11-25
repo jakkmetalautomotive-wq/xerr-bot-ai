@@ -53,7 +53,7 @@ export default function OrderForm({ liffId }: { liffId: string }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [form, setForm] = useState({ name: "", phone: "", address: "", zip: "", note: "" });
   const [sending, setSending] = useState(false);
-  const [done, setDone] = useState<{ code: string; total: number } | null>(null);
+  const [done, setDone] = useState<{ code: string; total: number; stage?: "wait" | "slip" | "paid" } | null>(null);
 
   const web = Boolean(draft?.u); // ลูกค้า Facebook/Instagram
 
@@ -98,7 +98,7 @@ export default function OrderForm({ liffId }: { liffId: string }) {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "ส่งไม่สำเร็จ");
       if (inChat) await liff.sendMessages([{ type: "text", text: addressSentText(data.code, data.total) }]).catch(() => {});
-      setDone({ code: data.code, total: data.total });
+      setDone({ code: data.code, total: data.total, stage: data.stage });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -115,7 +115,11 @@ export default function OrderForm({ liffId }: { liffId: string }) {
           <br />
           ยอดชำระ <b>{done.total.toLocaleString("en-US")}.-</b>
           <br />
-          โอนแล้วส่งสลิปในแชท{web ? " Messenger" : " LINE"} ได้เลยครับ 🙏
+          {done.stage === "paid"
+            ? "ข้อมูลครบแล้ว จัดส่งรอบถัดไปครับ 🙏"
+            : done.stage === "slip"
+              ? "ได้รับสลิปแล้ว แอดมินกำลังเช็คยอดให้ครับ 🙏"
+              : `โอนแล้วส่งสลิปในแชท${web ? " Messenger" : " LINE"} ได้เลยครับ 🙏`}
         </div>
         {web ? (
           <p style={{ fontSize: 14, color: "#555" }}>ปิดหน้านี้แล้วกลับไปที่แชทได้เลยครับ</p>

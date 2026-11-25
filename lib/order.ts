@@ -1,6 +1,7 @@
 // ออเดอร์: คิดยอดด้วยโค้ด (ไม่ใช้ AI) · ข้อมูลออเดอร์เซ็นกำกับกันแก้ไข · ไม่ต้องมีฐานข้อมูล
 // ข้อมูลออเดอร์ติดไปกับปุ่ม / ลิงก์แบบฟอร์ม / ปุ่มของแอดมิน ทุกขั้น
 import crypto from "node:crypto";
+import { bankAccounts } from "./promptpay.ts";
 import { stepOf, CATEGORY_SET, CARD_THEME, baseUrl, type ImageSet } from "./images.ts";
 import { SHIPPING, TAX_CAR, REVIEW_REMINDER } from "./shop.ts";
 
@@ -95,7 +96,7 @@ export function orderLines(o: PricedOrder): string {
 export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: boolean, { qr = false, copyAccount = false, payInline = true } = {}): string {
   const howTo = [
     ...(qr ? ["📱 สแกน QR พร้อมเพย์ด้านล่างได้เลย (ใส่ยอดให้แล้ว)"] : []),
-    ...(copyAccount ? ["📋 เลขบัญชีส่งแยกไว้ด้านล่าง กดปุ่มโอนในแชท หรือกดค้างเพื่อคัดลอกได้เลยครับ"] : []),
+    ...(copyAccount ? ["📋 กดปุ่ม \"คัดลอกเลขบัญชี\" ในการ์ดด้านล่างได้เลยครับ"] : []),
   ];
   const info = formatPaymentInfo(paymentInfo);
   const pay = info || qr
@@ -159,6 +160,40 @@ export function copyAccountMessage(paymentInfo: string) {
           { type: "text", text: `📋 เลขบัญชี${bank} ${number}`, wrap: true, weight: "bold" },
           // webview: "compact" = Messenger เปิดเป็นแผ่นครึ่งจอ (ข้อความนี้ส่งเฉพาะลูกค้า Messenger)
           { type: "button", style: "primary", color: "#1BA5E1", action: { type: "uri", label: "📋 คัดลอกเลขบัญชี", uri: url, webview: "compact" } },
+        ],
+      },
+    },
+  };
+}
+// LINE: การ์ดเดียวรวมทุกบัญชี — ชื่อธนาคาร + เลขบัญชี + ปุ่มคัดลอก (คัดลอกเฉพาะตัวเลข วางในแอปธนาคารได้เลย)
+export function bankAccountsMessage(paymentInfo: string) {
+  const accounts = bankAccounts(formatPaymentInfo(paymentInfo));
+  if (!accounts.length) return null;
+  return {
+    type: "flex" as const,
+    altText: `เลขบัญชีสำหรับโอน ${accounts.map((a) => `${a.bank} ${a.number}`.trim()).join(" / ")}`.slice(0, 400),
+    contents: {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "lg",
+        contents: [
+          { type: "text", text: "💳 เลขบัญชีสำหรับโอน", weight: "bold" },
+          ...accounts.flatMap((a) => [
+            { type: "separator" },
+            {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: [
+                ...(a.bank ? [{ type: "text", text: a.bank, size: "md", weight: "bold", wrap: true }] : []),
+                { type: "text", text: a.number, size: "xl", weight: "bold", color: "#111111" },
+                { type: "button", style: "primary", color: "#111111", height: "sm", action: { type: "clipboard", label: "📋 คัดลอกเลขบัญชี", clipboardText: a.number.replace(/\D/g, "") } },
+              ],
+            },
+          ]),
         ],
       },
     },
@@ -300,6 +335,13 @@ export function taxUpsellMessage(product: string, picks: string[]) {
   };
 }
 
+// ลิงก์แบบฟอร์มที่อยู่: ลูกค้า LINE → LIFF · ลูกค้า Facebook/Instagram → หน้าเว็บ /order
+export function orderFormUrl(token: string, meta: boolean, liffId = ""): string {
+  if (!token) return "";
+  if (meta) return `${baseUrl()}/order?o=${encodeURIComponent(token)}`;
+  return liffId ? `https://liff.line.me/${liffId}?o=${encodeURIComponent(token)}` : "";
+}
+
 // การ์ดปุ่ม "กรอกชื่อ-ที่อยู่จัดส่ง" → เปิดแบบฟอร์มในแอป LINE
 // url = ลิงก์ LIFF (ลูกค้า LINE) หรือหน้าเว็บ /order (ลูกค้า Facebook/Instagram)
 export function addressButtonMessage(url: string) {
@@ -346,19 +388,31 @@ export function validateAddress(a: Partial<Address>): { ok: true; value: Address
 }
 
 // แจ้งแอดมิน + ปุ่มยืนยันรับเงิน
-export function adminOrderMessage(o: PricedOrder, a: Address, customerName: string, userId: string) {
+// hasSlip = ลูกค้าส่งสลิปมาก่อนกรอกที่อยู่
+export function adminOrderMessage(o: PricedOrder, a: Address, customerName: string, userId: string, hasSlip = false) {
   const text = [
     `💰 ออเดอร์ ${o.code} — รอเช็คยอดโอน`,
-    orderLines(o),
+    ...adminDetails(o, a, customerName, userId),
     "",
-    `👤 ${a.name}  📞 ${a.phone}`,
-    `📦 ${a.address} ${a.zip}`,
-    ...(a.note ? [`📝 ${a.note}`] : []),
-    `${userId.startsWith("fb:") ? "Facebook" : userId.startsWith("ig:") ? "Instagram" : "LINE"}: ${customerName || "-"}`,
-    "",
-    "ลูกค้าจะส่งสลิปในแชท · เช็คยอดในแอปธนาคารแล้วกดปุ่มด้านล่าง",
+    hasSlip
+      ? "ลูกค้าส่งสลิปมาแล้ว (ดูด้านบน) · เช็คยอดในแอปธนาคารแล้วกดปุ่มด้านล่าง"
+      : "ลูกค้าจะส่งสลิปในแชท · เช็คยอดในแอปธนาคารแล้วกดปุ่มด้านล่าง",
   ].join("\n");
   return confirmCard(text, `ออเดอร์ ${o.code} ยอด ${baht(o.total)}.- รอเช็คยอดโอน`, o.code, o.total, userId);
+}
+
+const adminDetails = (o: PricedOrder, a: Address, customerName: string, userId: string) => [
+  orderLines(o),
+  "",
+  `👤 ${a.name}  📞 ${a.phone}`,
+  `📦 ${a.address} ${a.zip}`,
+  ...(a.note ? [`📝 ${a.note}`] : []),
+  `${userId.startsWith("fb:") ? "Facebook" : userId.startsWith("ig:") ? "Instagram" : "LINE"}: ${customerName || "-"}`,
+];
+
+// ลูกค้ากรอกที่อยู่หลังแอดมินยืนยันเงินแล้ว → ข้อความธรรมดา ไม่มีปุ่มยืนยันซ้ำ
+export function adminAddressText(o: PricedOrder, a: Address, customerName: string, userId: string): string {
+  return [`📦 ออเดอร์ ${o.code} — ลูกค้ากรอกที่อยู่แล้ว (ยืนยันรับเงินไปแล้ว ✅)`, ...adminDetails(o, a, customerName, userId)].join("\n");
 }
 
 // ลูกค้าที่มีออเดอร์ค้างส่งสลิปมา → การ์ดถึงแอดมินพร้อมปุ่มเดียวกัน (กดยืนยันจากใต้รูปสลิปได้เลย)
