@@ -91,6 +91,10 @@ export function orderLines(o: PricedOrder): string {
   ].join("\n");
 }
 
+// ปุ่มเปิดแบบฟอร์ม: ที่อยู่ + สลิปจบในหน้าเดียว (ชื่อปุ่ม Messenger ยาวได้ 20 ตัวอักษร)
+export const FORM_BUTTON = "แจ้งที่อยู่+แนบสลิป";
+export const FORM_TITLE = "📦 แจ้งชื่อ-ที่อยู่ พร้อมสลิปหลังชำระเงิน";
+
 // เทมเพลตสรุปออเดอร์ของจักร (ปรับคำเป็นผู้ชาย) · เลขบัญชีมาจาก PAYMENT_INFO ใน Vercel
 // payInline = false → ไม่ใส่ข้อมูลโอนในสรุป (Messenger ส่งเป็นข้อความ "ช่องทางชำระเงิน" แยก ดู paymentMessage)
 export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: boolean, { qr = false, copyAccount = false, payInline = true } = {}): string {
@@ -100,10 +104,10 @@ export function orderSummaryText(o: PricedOrder, paymentInfo: string, hasForm: b
   ];
   const info = formatPaymentInfo(paymentInfo);
   const pay = info || qr
-    ? ["เมื่อ Confirm สินค้าแล้ว สามารถโอนชำระได้เลยนะครับ", "", ...(info ? [info] : []), ...howTo, "‼️กรุณาส่งสลิปโอนเงินมาในแชตด้วยนะครับ ‼️"].join("\n")
+    ? ["เมื่อ Confirm สินค้าแล้ว สามารถโอนชำระได้เลยนะครับ", "", ...(info ? [info] : []), ...howTo, hasForm ? "‼️ โอนแล้วรบกวนแนบสลิปในปุ่มด้านล่างด้วยนะครับ ‼️" : "‼️กรุณาส่งสลิปโอนเงินมาในแชตด้วยนะครับ ‼️"].join("\n")
     : "เดี๋ยวแอดมินส่งเลขบัญชีให้นะครับ";
   const address = hasForm
-    ? "🚚 กดปุ่ม \"กรอกชื่อ-ที่อยู่จัดส่ง\" ด้านล่างได้เลยครับ"
+    ? `🚚 กดปุ่ม "${FORM_BUTTON}" ด้านล่าง กรอกที่อยู่และแนบสลิปได้ในหน้าเดียวเลยครับ`
     : "🚚 รบกวนแจ้งชื่อที่อยู่สำหรับจัดส่ง\n👤 ชื่อ :\n📞 เบอร์ :\n📦 ที่อยู่จัดส่ง :";
   return [
     `📍สรุปรายการสั่งซื้อ (ออเดอร์ ${o.code})`,
@@ -342,12 +346,12 @@ export function orderFormUrl(token: string, meta: boolean, liffId = ""): string 
   return liffId ? `https://liff.line.me/${liffId}?o=${encodeURIComponent(token)}` : "";
 }
 
-// การ์ดปุ่ม "กรอกชื่อ-ที่อยู่จัดส่ง" → เปิดแบบฟอร์มในแอป LINE
+// การ์ดปุ่มแจ้งที่อยู่ + แนบสลิป → เปิดแบบฟอร์มในแอป LINE
 // url = ลิงก์ LIFF (ลูกค้า LINE) หรือหน้าเว็บ /order (ลูกค้า Facebook/Instagram)
 export function addressButtonMessage(url: string) {
   return {
     type: "flex" as const,
-    altText: "กรอกชื่อ-ที่อยู่จัดส่ง",
+    altText: FORM_TITLE,
     contents: {
       type: "bubble",
       size: "kilo",
@@ -356,13 +360,13 @@ export function addressButtonMessage(url: string) {
         layout: "vertical",
         spacing: "md",
         contents: [
-          { type: "text", text: "📦 ข้อมูลจัดส่ง", weight: "bold" },
-          { type: "text", text: "กรอกชื่อ เบอร์ ที่อยู่ ให้เรียบร้อย แล้วโอน + ส่งสลิปในแชทได้เลยครับ", size: "sm", color: "#666666", wrap: true },
+          { type: "text", text: FORM_TITLE, weight: "bold", wrap: true },
+          { type: "text", text: "โอนแล้วกดปุ่มด้านล่าง กรอกที่อยู่และแนบสลิปได้ในหน้าเดียวเลยครับ 🙏", size: "sm", color: "#666666", wrap: true },
           {
             type: "button",
             style: "primary",
             color: "#06C755",
-            action: { type: "uri", label: "กรอกชื่อ-ที่อยู่จัดส่ง", uri: url },
+            action: { type: "uri", label: FORM_BUTTON, uri: url },
           },
         ],
       },
@@ -380,6 +384,8 @@ export function validateAddress(a: Partial<Address>): { ok: true; value: Address
     zip: String(a.zip ?? "").replace(/[^\d]/g, ""),
     note: String(a.note ?? "").trim().slice(0, 200),
   };
+  // พิมพ์รหัสไปรษณีย์ไว้ท้ายที่อยู่ด้วย → ตัดตัวซ้ำ ("… เขตจอมทอง 10150 10150")
+  if (value.zip && value.address.endsWith(value.zip)) value.address = value.address.slice(0, -value.zip.length).trim();
   if (value.name.length < 2) return { ok: false, error: "กรุณากรอกชื่อ-นามสกุล" };
   if (!/^0\d{8,9}$/.test(value.phone)) return { ok: false, error: "เบอร์โทรไม่ถูกต้อง (ขึ้นต้นด้วย 0 และมี 9–10 หลัก)" };
   if (value.address.length < 10) return { ok: false, error: "กรุณากรอกที่อยู่ให้ครบ (บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด)" };
@@ -441,10 +447,10 @@ function confirmCard(text: string, altText: string, code: string, total: number,
 }
 
 export const ADDRESS_SENT_PREFIX = "📝 ส่งที่อยู่แล้ว";
-export function addressSentText(code: string, total: number) {
-  return `${ADDRESS_SENT_PREFIX} · ออเดอร์ ${code} · ยอด ${baht(total)}.-`;
+export function addressSentText(code: string, total: number, withSlip = false) {
+  return `${withSlip ? "📝 ส่งที่อยู่ + สลิปแล้ว" : ADDRESS_SENT_PREFIX} · ออเดอร์ ${code} · ยอด ${baht(total)}.-`;
 }
 export function parseAddressSent(text: string): { code: string; total: string } | null {
-  const m = text.match(/^📝 ส่งที่อยู่แล้ว · ออเดอร์ (XR-[A-Z0-9]+) · ยอด ([\d,]+)\.-$/);
+  const m = text.match(/^📝 ส่งที่อยู่(?: \+ สลิป)?แล้ว · ออเดอร์ (XR-[A-Z0-9]+) · ยอด ([\d,]+)\.-$/);
   return m ? { code: m[1], total: m[2] } : null;
 }

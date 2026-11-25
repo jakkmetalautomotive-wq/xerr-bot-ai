@@ -83,7 +83,7 @@ messages sent to our Page. We do not change any Page settings or content.
 3. Keep choosing options on the cards (colour → size → centre line). The bot then asks
    about an optional tax-plate frame; tap either button.
 4. The bot sends an order summary with the bank account, a "copy account number" button,
-   and a "กรอกชื่อ-ที่อยู่จัดส่ง" (fill in shipping address) button that opens a web form.
+   and a "แจ้งที่อยู่+แนบสลิป" (fill in shipping address and attach the payment slip) button that opens a web form.
 5. Send: ขอดูรีวิว Yaris   (means "show reviews for Toyota Yaris")
    → The bot replies with real customer photos.
 6. Send: คุยกับแอดมิน   (means "talk to an admin")

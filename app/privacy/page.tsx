@@ -41,6 +41,7 @@ export default function Privacy() {
       <ul>
         <li>บริบทการสนทนาสำหรับตอบต่อเนื่อง: ไม่เกิน 30 นาที</li>
         <li>ข้อมูลทำใบปะหน้า (ชื่อ ที่อยู่): 60 วัน</li>
+        <li>รูปสลิปที่แนบในแบบฟอร์ม: 30 วัน</li>
         <li>ประวัติคำสั่งซื้อ: เก็บไว้เพื่อการจัดส่ง บริการหลังการขาย และบัญชีของร้าน</li>
         <li>ประวัติแชทเก็บอยู่ในระบบของ LINE / Meta ตามนโยบายของแต่ละแพลตฟอร์ม</li>
       </ul>
@@ -59,7 +60,7 @@ export default function Privacy() {
         platform user ID, and the shipping details you enter (name, phone, address). We use them only to reply to you,
         process and ship your order, and hand your conversation to our staff when needed. Service providers that process
         data for us: LINE, Meta, Google (Gemini, Sheets, Drive), Vercel and Upstash. Conversation context is kept for up to
-        30 minutes, shipping-label data for 60 days, and order records as needed for delivery, after-sales service and
+        30 minutes, shipping-label data for 60 days, payment slips attached in the form for 30 days, and order records as needed for delivery, after-sales service and
         accounting. We do not sell your data or send promotional messages you did not ask for. To access or delete your
         data, message our Page or LINE account with "delete my data" — see the <a href="/data-deletion">data deletion page</a>.
       </p>

@@ -6,7 +6,8 @@ import { line } from "@/lib/line.ts";
 import { metaPort, routedPort } from "@/lib/meta.ts";
 import { getTracking, logOrder, newOrderEvent } from "@/lib/orderlog.ts";
 import { getLabel, labelFromOrder, saveLabel } from "@/lib/label.ts";
-import { addressAdminMessages, addressChanged, addressReplies, orderStage } from "@/lib/order-stage.ts";
+import { addressAdminMessages, addressChanged, addressReplies, markSlip, orderStage } from "@/lib/order-stage.ts";
+import { readSlipUpload, saveSlipImage, uploadedSlipMessage } from "@/lib/slip-upload.ts";
 import { defaultState } from "@/lib/state.ts";
 
 export const runtime = "nodejs";
@@ -27,6 +28,13 @@ async function lineUserFromIdToken(idToken: string): Promise<{ sub: string; name
   if (!res?.ok) return null;
   const data = (await res.json()) as { sub?: string; name?: string };
   return data.sub ? { sub: data.sub, name: data.name } : null;
+}
+
+// แบบฟอร์มถามก่อนเปิด: ออเดอร์นี้ต้องแนบสลิปไหม (ส่งสลิปแล้ว / ยืนยันเงินแล้ว → ไม่ต้อง เช่น ตอนแก้ที่อยู่)
+export async function GET(req: Request) {
+  const draft = verifyOrder(new URL(req.url).searchParams.get("o") ?? "", process.env.LINE_CHANNEL_SECRET ?? "");
+  if (!draft) return bad("ลิงก์ออเดอร์ไม่ถูกต้อง");
+  return Response.json({ ok: true, needSlip: (await orderStage(defaultState, draft.code)) === "wait" }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: Request) {
@@ -62,6 +70,18 @@ export async function POST(req: Request) {
     return bad("ออเดอร์นี้จัดส่งแล้ว แก้ที่อยู่ไม่ได้ครับ รบกวนทักแอดมินในแชท");
   }
 
+  // สลิป: บังคับแนบจนกว่าจะมีสลิปของออเดอร์นี้ (ส่งในแชทก่อนแล้วก็นับ)
+  let slip: Buffer | null = null;
+  if (body.slip) {
+    slip = await readSlipUpload(body.slip);
+    if (!slip) return bad("เปิดรูปสลิปไม่ได้ รบกวนเลือกรูปใหม่ (แคปหน้าจอสลิปแล้วแนบได้ครับ)");
+  } else if ((await orderStage(defaultState, order.code)) === "wait") {
+    return bad("กรุณาแนบสลิปโอนเงินครับ");
+  }
+  const secret = process.env.LINE_CHANNEL_SECRET ?? "";
+  const slipImage = slip ? uploadedSlipMessage(await saveSlipImage(defaultState, order.code, slip), secret) : null;
+  if (slip) await markSlip(defaultState, order.code);
+
   // เก็บที่อยู่ไว้ทำใบปะหน้า (ส่งให้แอดมินตอนกด ✅ ได้รับเงินแล้ว + ให้ลูกค้าเช็คความถูกต้อง)
   await saveLabel(defaultState, label).catch((err) => console.error("[order] เก็บข้อมูลใบปะหน้าไม่สำเร็จ:", err));
 
@@ -70,14 +90,14 @@ export async function POST(req: Request) {
 
   const adminId = process.env.ADMIN_LINE_USER_ID;
   if (adminId) {
-    await line.push(adminId, addressAdminMessages(stage, order, addr.value, user.name ?? "", user.sub, process.env.LINE_CHANNEL_SECRET ?? "", edited)).catch((err) => console.error("[order] แจ้งแอดมินไม่สำเร็จ:", err));
+    await line.push(adminId, addressAdminMessages(stage, order, addr.value, user.name ?? "", user.sub, secret, edited, slipImage)).catch((err) => console.error("[order] แจ้งแอดมินไม่สำเร็จ:", err));
   } else {
     console.warn(`[order] ยังไม่ได้ตั้ง ADMIN_LINE_USER_ID — ออเดอร์ ${order.code}:\n${orderLines(order)}\n${JSON.stringify(addr.value)}`);
   }
 
   // ถ้าแบบฟอร์มส่งข้อความในแชทแทนลูกค้าไม่ได้ (เปิดนอกแชท) → บอทยืนยันให้เอง
   if (!body.chatMessageSent) {
-    await chat.push(user.sub, await addressReplies(defaultState, order.code, order.total.toLocaleString("en-US"), user.sub, process.env.LINE_CHANNEL_SECRET ?? "")).catch(() => {});
+    await chat.push(user.sub, await addressReplies(defaultState, order.code, order.total.toLocaleString("en-US"), user.sub, secret)).catch(() => {});
   }
 
   // ลงชีทออเดอร์ (สถานะ รอตรวจสลิป) — ชีทล่มก็ไม่กระทบลูกค้า

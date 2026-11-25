@@ -3,6 +3,7 @@
 // และใบปะหน้าต้องออกให้แอดมินเมื่อครบทั้งที่อยู่ + ยืนยันสลิป ไม่ว่าอะไรมาก่อน
 import { adminAddressText, adminOrderMessage, type Address, type PricedOrder } from "./order.ts";
 import { addressCheckMessage, getLabel, labelReadyText, labelUrl, type LabelData } from "./label.ts";
+import type { uploadedSlipMessage } from "./slip-upload.ts";
 import type { StateStore } from "./state.ts";
 
 export type OrderStage = "wait" | "slip" | "paid";
@@ -23,9 +24,9 @@ export async function orderStage(state: StateStore, code: string): Promise<Order
 
 // ตอบลูกค้าหลังกรอกที่อยู่ — ขอสลิปเฉพาะตอนที่ยังไม่ได้ส่งมา
 export function addressReplyText(stage: OrderStage, code: string, total: string): string {
+  if (stage === "slip") return `รับที่อยู่และสลิปแล้วครับ ✅ ออเดอร์ ${code}\nแอดมินกำลังเช็คยอดให้ครับ ไม่ต้องส่งสลิปซ้ำนะครับ 🙏`;
   const head = `รับที่อยู่จัดส่งแล้วครับ ✅ ออเดอร์ ${code}`;
   if (stage === "paid") return `${head}\nข้อมูลครบแล้ว จัดส่งรอบถัดไปครับ ขอบคุณที่อุดหนุนครับ 🙏`;
-  if (stage === "slip") return `${head}\nได้รับสลิปแล้ว แอดมินกำลังเช็คยอดให้ครับ ไม่ต้องส่งซ้ำนะครับ 🙏`;
   return `${head}\nโอนยอด ${total}.- แล้วส่งสลิปในแชทนี้ได้เลยครับ 🙏`;
 }
 
@@ -42,10 +43,12 @@ export const addressChanged = (before: LabelData | null, after: LabelData) =>
   before !== null && (["name", "phone", "address", "zip", "note"] as const).some((k) => before[k] !== after[k]);
 
 // แจ้งแอดมินหลังลูกค้ากรอกที่อยู่ — ยืนยันเงินไปแล้ว → ไม่มีปุ่มซ้ำ ส่งใบปะหน้าให้เลย
-export function addressAdminMessages(stage: OrderStage, o: PricedOrder, a: Address, customerName: string, userId: string, secret: string, edited = false) {
+export function addressAdminMessages(stage: OrderStage, o: PricedOrder, a: Address, customerName: string, userId: string, secret: string, edited = false, slipImage: ReturnType<typeof uploadedSlipMessage> | null = null) {
   const warn = edited ? [`✏️ ลูกค้าแก้ที่อยู่ออเดอร์ ${o.code} — ถ้าพิมพ์ใบปะหน้าเดิมไปแล้ว ให้ทิ้งแล้วใช้ใบใหม่นะครับ`] : [];
-  if (stage !== "paid") return [...warn, adminOrderMessage(o, a, customerName, userId, stage === "slip")];
-  return [...warn, adminAddressText(o, a, customerName, userId), ...(secret ? [labelReadyText(o.code, a.name, labelUrl(o.code, secret))] : [])];
+  // แนบสลิปในแบบฟอร์ม → รูปสลิป + การ์ดออเดอร์ (มีปุ่ม ✅/❌) มาพร้อมกัน
+  const pic = slipImage ? [slipImage] : [];
+  if (stage !== "paid") return [...warn, ...pic, adminOrderMessage(o, a, customerName, userId, stage === "slip")];
+  return [...warn, ...pic, adminAddressText(o, a, customerName, userId), ...(secret ? [labelReadyText(o.code, a.name, labelUrl(o.code, secret))] : [])];
 }
 
 // ข้อความใบปะหน้าถึงแอดมิน (null = ลูกค้ายังไม่กรอกแบบฟอร์มที่อยู่)

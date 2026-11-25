@@ -1,6 +1,8 @@
 // รูปที่ลูกค้าส่งมา (สลิป ฯลฯ) → ส่งต่อให้ LINE แสดงในแชทแอดมิน
 // รับเฉพาะลิงก์ที่บอทเซ็นไว้ (lib/slip.ts) · ดึงจาก LINE ด้วย LINE_CHANNEL_ACCESS_TOKEN · &p=1 = รูปย่อ
 import { verifySlip } from "@/lib/slip.ts";
+import { getSlipImage, verifySlipImage } from "@/lib/slip-upload.ts";
+import { defaultState } from "@/lib/state.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +10,13 @@ export const maxDuration = 20;
 
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
+  // ?u= สลิปที่ลูกค้าแนบในแบบฟอร์ม (เก็บไว้ 30 วัน)
+  if (params.has("u")) {
+    const slipId = verifySlipImage(params.get("u") ?? "", process.env.LINE_CHANNEL_SECRET ?? "");
+    const image = slipId ? await getSlipImage(defaultState, slipId) : null;
+    if (!image) return new Response("not found", { status: 404 });
+    return new Response(new Uint8Array(image), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store" } });
+  }
   const id = verifySlip(params.get("t") ?? "", process.env.LINE_CHANNEL_SECRET ?? "");
   if (!id) return new Response("not found", { status: 404 });
 

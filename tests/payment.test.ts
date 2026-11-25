@@ -50,7 +50,7 @@ test("ลูกค้า Facebook สั่งซื้อ → สรุปย�
   assert.match(msgs[0], /สรุปรายการสั่งซื้อ/);
   assert.ok(msgs[0].includes("123-4-56789-0"));
   assert.ok(!msgs[0].includes("987-6-54321-0") && !/ttb/i.test(msgs[0])); // Messenger ไม่แสดง ttb
-  assert.match(msgs[0], /กรุณาส่งสลิป/);
+  assert.match(msgs[0], /แนบสลิปในปุ่มด้านล่าง/);
   assert.ok(!/กดค้างเพื่อคัดลอก/.test(msgs[0]));
   assert.match(msgs[0], /🌐 ธนาคารกรุงไทย : 123-4-56789-0/); // ชื่อเต็ม ไม่ใช่ KTB
   assert.equal(msgs[1].type, "image"); // QR เฉพาะตอนตั้ง PROMPTPAY_ID

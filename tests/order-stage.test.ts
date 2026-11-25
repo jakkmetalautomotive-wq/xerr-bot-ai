@@ -3,11 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleEvent, type LinePort } from "../lib/bot.ts";
 import { sampleSets } from "../lib/images.ts";
-import { addressSentText, encodePostback, formatPaymentInfo, type PricedOrder } from "../lib/order.ts";
+import { addressButtonMessage, addressSentText, encodePostback, FORM_BUTTON, formatPaymentInfo, parseAddressSent, validateAddress, type PricedOrder } from "../lib/order.ts";
 import { bankAccounts } from "../lib/promptpay.ts";
 import { labelFromOrder, labelHtml, saveLabel, signLabel, verifyLabel } from "../lib/label.ts";
 import { addressAdminMessages, addressChanged, addressReplies, orderStage, parseLabelRequest } from "../lib/order-stage.ts";
 import { toMetaMessages } from "../lib/meta.ts";
+import { getSlipImage, readSlipUpload, saveSlipImage, uploadedSlipMessage, verifySlipImage } from "../lib/slip-upload.ts";
 import { memoryStore } from "../lib/state.ts";
 
 const PAY = "🏦 ชื่อบัญชี ร้านทดสอบ 🌐 KTB : 123-4-56789-0 🔵 TTB : 987-6-54321-0";
@@ -43,7 +44,7 @@ test("ส่งสลิปก่อน แล้วกรอกที่อย�
   await s.photo();
   await s.say(addressSentText(o.code, 84));
   const last = s.to("U1").at(-1);
-  assert.match(last, /ได้รับสลิปแล้ว/);
+  assert.match(last, /รับที่อยู่และสลิปแล้ว/);
   assert.ok(!/โอนยอด/.test(last));
   const [card] = addressAdminMessages(await orderStage(s.state, o.code), o, ADDR, "Jan", "U1", "secret") as any[];
   assert.match(card.contents.body.contents[0].text, /ลูกค้าส่งสลิปมาแล้ว/);
@@ -181,4 +182,37 @@ test("หน้าเช็คที่อยู่ของลูกค้า: 
   assert.match(shop, /window\.print/);
   assert.match(shop, /ชำระเงินแล้ว/);
   assert.ok(!/แก้ไขไม่ได้/.test(shop));
+});
+
+test("สลิปแนบในแบบฟอร์ม: รับเฉพาะรูปจริง ย่อ เก็บ และลิงก์มีลายเซ็น", async () => {
+  const sharp = (await import("sharp")).default;
+  const png = await sharp({ create: { width: 2000, height: 3000, channels: 3, background: "#7b4bd1" } }).png().toBuffer();
+  const img = (await readSlipUpload(`data:image/png;base64,${png.toString("base64")}`))!;
+  const meta = await sharp(img).metadata();
+  assert.equal(meta.format, "jpeg");
+  assert.ok(meta.height! <= 1600 && img.length <= 600_000);
+  for (const bad of [undefined, 5, "", "data:text/html;base64,PGI+", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/png;base64,aGVsbG8=", `data:image/png;base64,${"A".repeat(4_000_001)}`]) assert.equal(await readSlipUpload(bad), null);
+
+  const state = memoryStore();
+  const id = await saveSlipImage(state, "XR-AB12", img);
+  assert.deepEqual(await getSlipImage(state, id), img);
+  const token = new URL(uploadedSlipMessage(id, "secret").originalContentUrl).searchParams.get("u")!;
+  assert.equal(verifySlipImage(token, "secret"), id);
+  assert.equal(verifySlipImage(token, "other"), null);
+  assert.equal(verifySlipImage(token.replace("AB12", "AB13"), "secret"), null);
+});
+
+test("แนบสลิปในแบบฟอร์ม → แอดมินได้รูป + การ์ดมีปุ่มครั้งเดียว · ข้อความยืนยันจากฟอร์มอ่านออกทั้งสองแบบ", () => {
+  const o: PricedOrder = { code: "XR-AB12", product: "x", picks: [], tax: false, productLabel: "x", base: 69, taxPrice: 0, shipping: 15, total: 84 };
+  const msgs = addressAdminMessages("slip", o, ADDR, "Jan", "U1", "secret", false, uploadedSlipMessage("XR-AB12-0123456789", "secret")) as any[];
+  assert.deepEqual(msgs.map((m) => m.type), ["image", "flex"]);
+  for (const withSlip of [true, false]) assert.deepEqual(parseAddressSent(addressSentText("XR-AB12", 84, withSlip)), { code: "XR-AB12", total: "84" });
+});
+
+test("การ์ดแจ้งที่อยู่: ข้อความใหม่ · ชื่อปุ่มไม่เกิน 20 ตัวอักษร (Messenger) · ตัดรหัสไปรษณีย์ซ้ำ", () => {
+  assert.ok(FORM_BUTTON.length <= 20);
+  const json = JSON.stringify(addressButtonMessage("https://x.test"));
+  assert.match(json, /แจ้งชื่อ-ที่อยู่ พร้อมสลิปหลังชำระเงิน/);
+  const v = validateAddress({ ...ADDR, address: "82/267 ซอยเอกชัย 10 กรุงเทพมหานคร เขตจอมทอง 10150", zip: "10150" });
+  assert.ok(v.ok && v.value.address === "82/267 ซอยเอกชัย 10 กรุงเทพมหานคร เขตจอมทอง");
 });
